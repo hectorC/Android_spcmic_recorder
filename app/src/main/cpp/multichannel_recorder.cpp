@@ -46,13 +46,6 @@ bool MultichannelRecorder::startRecording(const std::string& outputPath) {
     
     LOGI("Starting recording to: %s", outputPath.c_str());
     
-    // CRITICAL: Stop monitoring thread to avoid two threads reading from the same USB device
-    // The recording thread will handle both recording AND level meter updates
-    if (m_isMonitoring.load()) {
-        LOGI("Stopping monitoring thread before recording");
-        stopMonitoring();
-    }
-    
     // Create WAV writer
     if (m_wavWriter) {
         delete m_wavWriter;
@@ -101,10 +94,6 @@ bool MultichannelRecorder::stopRecording() {
     if (m_recordingThread.joinable()) {
         m_recordingThread.join();
     }
-    
-    // Restart monitoring thread after recording stops to continue level meter updates
-    LOGI("Restarting monitoring thread after recording");
-    startMonitoring();
     
     // Stop USB audio streaming
     if (m_audioInterface) {

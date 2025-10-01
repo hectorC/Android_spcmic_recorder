@@ -157,7 +157,8 @@ class USBAudioRecorder(
         val success = initializeNativeAudio(deviceFd, sampleRate, channelCount)
         if (success) {
             android.util.Log.i("USBAudioRecorder", "Native audio initialized: ${stringFromJNI()}")
-            startLevelMonitoring()
+            // TEMPORARILY DISABLED: Level monitoring disabled to focus on clean recording
+            // startLevelMonitoring()
         } else {
             android.util.Log.e("USBAudioRecorder", "Failed to initialize native audio")
             usbConnection?.close()

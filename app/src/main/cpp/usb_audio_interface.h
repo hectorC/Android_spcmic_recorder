@@ -37,6 +37,37 @@ private:
     int m_audioInEndpoint;
     int m_controlEndpoint;
     
+    // URB management counters (member variables to avoid static variable memory corruption)
+    int m_nextSubmitIndex;
+    int m_totalSubmitted;
+    int m_callCount;
+    int m_attemptCount;
+    int m_submitErrorCount;
+    int m_reapCount;
+    int m_reapErrorCount;
+    int m_eagainCount;
+    int m_reapAttemptCount;
+    
+    // Stuck URB detection - track when only one URB keeps completing
+    void* m_lastReapedUrbAddress;
+    int m_consecutiveSameUrbCount;
+    int m_recentReapCheckpoint;  // Track reap count at last check
+    bool m_stuckUrbDetected;
+    static const int STUCK_URB_THRESHOLD = 50; // Consider URB stuck after 50 consecutive reaps
+    static const int CHECK_INTERVAL = 100; // Check for stuck URBs every 100 reaps
+    
+    // URB management - converted from static to prevent memory corruption
+    struct usbdevfs_urb** m_urbs;
+    uint8_t** m_urbBuffers;  // Dynamic allocation instead of static array
+    bool m_urbsInitialized;
+    bool m_wasStreaming;
+    int m_notStreamingCount;
+    int m_noFramesCount;
+    
+    // Explicit frame scheduling for isochronous transfers
+    int m_currentFrameNumber;
+    bool m_frameNumberInitialized;
+    
     // USB control functions
     bool sendControlRequest(uint8_t request, uint16_t value, uint16_t index, 
                            uint8_t* data, uint16_t length);
