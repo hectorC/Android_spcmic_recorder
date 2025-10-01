@@ -1,0 +1,22 @@
+[
+    {
+        "merged": "com.spcmic.recorder.app-debug-38:/xml_device_filter.xml.flat",
+        "source": "com.spcmic.recorder.app-main-40:/xml/device_filter.xml"
+    },
+    {
+        "merged": "com.spcmic.recorder.app-debug-38:/xml_backup_rules.xml.flat",
+        "source": "com.spcmic.recorder.app-main-40:/xml/backup_rules.xml"
+    },
+    {
+        "merged": "com.spcmic.recorder.app-debug-38:/xml_data_extraction_rules.xml.flat",
+        "source": "com.spcmic.recorder.app-main-40:/xml/data_extraction_rules.xml"
+    },
+    {
+        "merged": "com.spcmic.recorder.app-debug-38:/drawable_info_background.xml.flat",
+        "source": "com.spcmic.recorder.app-main-40:/drawable/info_background.xml"
+    },
+    {
+        "merged": "com.spcmic.recorder.app-debug-38:/layout_activity_main.xml.flat",
+        "source": "com.spcmic.recorder.app-main-40:/layout/activity_main.xml"
+    }
+]

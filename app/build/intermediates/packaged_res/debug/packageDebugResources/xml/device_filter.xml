@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SPCMic USB Audio Device Filter -->
+    <!-- From logs: mVendorId=22564, mProductId=10208 -->
+    <!-- Vendor ID: 22564 = 0x5824 (Harpex) -->
+    <!-- Product ID: 10208 = 0x27E0 (spacemic 02E5D5) -->
+    <usb-device vendor-id="22564" product-id="10208" />
+    
+    <!-- Fallback: Generic USB Audio Class devices -->
+    <usb-device class="1" subclass="1" protocol="0" />
+    <usb-device class="1" subclass="2" protocol="0" />
+</resources>

@@ -1,0 +1,27 @@
+[
+{
+  "directory": "D:/Audio_Projects/Android_spcmic_recorder/app/.cxx/Debug/2gs5v1j1/x86_64",
+  "command": "C:\\Users\\hcenteno\\AppData\\Local\\Android\\Sdk\\ndk\\23.1.7779620\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe --target=x86_64-none-linux-android29 --sysroot=C:/Users/hcenteno/AppData/Local/Android/Sdk/ndk/23.1.7779620/toolchains/llvm/prebuilt/windows-x86_64/sysroot -Dspcmic_recorder_EXPORTS -ID:/Audio_Projects/Android_spcmic_recorder/app/src/main/cpp -std=c++17 -frtti -fexceptions -g  -fno-limit-debug-info -fPIC -std=c++17 -o CMakeFiles\\spcmic_recorder.dir\\native-lib.cpp.o -c D:\\Audio_Projects\\Android_spcmic_recorder\\app\\src\\main\\cpp\\native-lib.cpp",
+  "file": "D:\\Audio_Projects\\Android_spcmic_recorder\\app\\src\\main\\cpp\\native-lib.cpp"
+},
+{
+  "directory": "D:/Audio_Projects/Android_spcmic_recorder/app/.cxx/Debug/2gs5v1j1/x86_64",
+  "command": "C:\\Users\\hcenteno\\AppData\\Local\\Android\\Sdk\\ndk\\23.1.7779620\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe --target=x86_64-none-linux-android29 --sysroot=C:/Users/hcenteno/AppData/Local/Android/Sdk/ndk/23.1.7779620/toolchains/llvm/prebuilt/windows-x86_64/sysroot -Dspcmic_recorder_EXPORTS -ID:/Audio_Projects/Android_spcmic_recorder/app/src/main/cpp -std=c++17 -frtti -fexceptions -g  -fno-limit-debug-info -fPIC -std=c++17 -o CMakeFiles\\spcmic_recorder.dir\\usb_audio_interface.cpp.o -c D:\\Audio_Projects\\Android_spcmic_recorder\\app\\src\\main\\cpp\\usb_audio_interface.cpp",
+  "file": "D:\\Audio_Projects\\Android_spcmic_recorder\\app\\src\\main\\cpp\\usb_audio_interface.cpp"
+},
+{
+  "directory": "D:/Audio_Projects/Android_spcmic_recorder/app/.cxx/Debug/2gs5v1j1/x86_64",
+  "command": "C:\\Users\\hcenteno\\AppData\\Local\\Android\\Sdk\\ndk\\23.1.7779620\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe --target=x86_64-none-linux-android29 --sysroot=C:/Users/hcenteno/AppData/Local/Android/Sdk/ndk/23.1.7779620/toolchains/llvm/prebuilt/windows-x86_64/sysroot -Dspcmic_recorder_EXPORTS -ID:/Audio_Projects/Android_spcmic_recorder/app/src/main/cpp -std=c++17 -frtti -fexceptions -g  -fno-limit-debug-info -fPIC -std=c++17 -o CMakeFiles\\spcmic_recorder.dir\\uac_protocol.cpp.o -c D:\\Audio_Projects\\Android_spcmic_recorder\\app\\src\\main\\cpp\\uac_protocol.cpp",
+  "file": "D:\\Audio_Projects\\Android_spcmic_recorder\\app\\src\\main\\cpp\\uac_protocol.cpp"
+},
+{
+  "directory": "D:/Audio_Projects/Android_spcmic_recorder/app/.cxx/Debug/2gs5v1j1/x86_64",
+  "command": "C:\\Users\\hcenteno\\AppData\\Local\\Android\\Sdk\\ndk\\23.1.7779620\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe --target=x86_64-none-linux-android29 --sysroot=C:/Users/hcenteno/AppData/Local/Android/Sdk/ndk/23.1.7779620/toolchains/llvm/prebuilt/windows-x86_64/sysroot -Dspcmic_recorder_EXPORTS -ID:/Audio_Projects/Android_spcmic_recorder/app/src/main/cpp -std=c++17 -frtti -fexceptions -g  -fno-limit-debug-info -fPIC -std=c++17 -o CMakeFiles\\spcmic_recorder.dir\\multichannel_recorder.cpp.o -c D:\\Audio_Projects\\Android_spcmic_recorder\\app\\src\\main\\cpp\\multichannel_recorder.cpp",
+  "file": "D:\\Audio_Projects\\Android_spcmic_recorder\\app\\src\\main\\cpp\\multichannel_recorder.cpp"
+},
+{
+  "directory": "D:/Audio_Projects/Android_spcmic_recorder/app/.cxx/Debug/2gs5v1j1/x86_64",
+  "command": "C:\\Users\\hcenteno\\AppData\\Local\\Android\\Sdk\\ndk\\23.1.7779620\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe --target=x86_64-none-linux-android29 --sysroot=C:/Users/hcenteno/AppData/Local/Android/Sdk/ndk/23.1.7779620/toolchains/llvm/prebuilt/windows-x86_64/sysroot -Dspcmic_recorder_EXPORTS -ID:/Audio_Projects/Android_spcmic_recorder/app/src/main/cpp -std=c++17 -frtti -fexceptions -g  -fno-limit-debug-info -fPIC -std=c++17 -o CMakeFiles\\spcmic_recorder.dir\\wav_writer.cpp.o -c D:\\Audio_Projects\\Android_spcmic_recorder\\app\\src\\main\\cpp\\wav_writer.cpp",
+  "file": "D:\\Audio_Projects\\Android_spcmic_recorder\\app\\src\\main\\cpp\\wav_writer.cpp"
+}
+]

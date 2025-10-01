@@ -1,0 +1,185 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.spcmic.recorder"
+4    android:versionCode="1"
+5    android:versionName="1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="29"
+9        android:targetSdkVersion="35" />
+10
+11    <!-- USB permissions -->
+12    <uses-permission android:name="android.permission.USB_PERMISSION" />
+12-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:6:5-73
+12-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:6:22-70
+13
+14    <uses-feature
+14-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:7:5-86
+15        android:name="android.hardware.usb.host"
+15-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:7:19-59
+16        android:required="true" />
+16-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:7:60-83
+17
+18    <!-- Audio recording permissions -->
+19    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+19-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:10:5-71
+19-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:10:22-68
+20
+21    <!-- Storage permissions for saving WAV files -->
+22    <uses-permission
+22-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:13:5-14:38
+23        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+23-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:13:22-78
+24        android:maxSdkVersion="28" />
+24-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:14:9-35
+25    <uses-permission
+25-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:15:5-16:38
+26        android:name="android.permission.READ_EXTERNAL_STORAGE"
+26-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:15:22-77
+27        android:maxSdkVersion="32" />
+27-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:16:9-35
+28    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+28-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:17:5-75
+28-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:17:22-72
+29
+30    <!-- Wake lock to prevent device sleep during recording -->
+31    <uses-permission android:name="android.permission.WAKE_LOCK" />
+31-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:20:5-68
+31-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:20:22-65
+32
+33    <permission
+33-->[androidx.core:core:1.12.0] C:\Users\hcenteno\.gradle\caches\transforms-4\19c7fef1b5656164f7a5ed6ef9849313\transformed\core-1.12.0\AndroidManifest.xml:22:5-24:47
+34        android:name="com.spcmic.recorder.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+34-->[androidx.core:core:1.12.0] C:\Users\hcenteno\.gradle\caches\transforms-4\19c7fef1b5656164f7a5ed6ef9849313\transformed\core-1.12.0\AndroidManifest.xml:23:9-81
+35        android:protectionLevel="signature" />
+35-->[androidx.core:core:1.12.0] C:\Users\hcenteno\.gradle\caches\transforms-4\19c7fef1b5656164f7a5ed6ef9849313\transformed\core-1.12.0\AndroidManifest.xml:24:9-44
+36
+37    <uses-permission android:name="com.spcmic.recorder.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+37-->[androidx.core:core:1.12.0] C:\Users\hcenteno\.gradle\caches\transforms-4\19c7fef1b5656164f7a5ed6ef9849313\transformed\core-1.12.0\AndroidManifest.xml:26:5-97
+37-->[androidx.core:core:1.12.0] C:\Users\hcenteno\.gradle\caches\transforms-4\19c7fef1b5656164f7a5ed6ef9849313\transformed\core-1.12.0\AndroidManifest.xml:26:22-94
+38
+39    <application
+39-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:22:5-49:19
+40        android:allowBackup="true"
+40-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:23:9-35
+41        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+41-->[androidx.core:core:1.12.0] C:\Users\hcenteno\.gradle\caches\transforms-4\19c7fef1b5656164f7a5ed6ef9849313\transformed\core-1.12.0\AndroidManifest.xml:28:18-86
+42        android:dataExtractionRules="@xml/data_extraction_rules"
+42-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:24:9-65
+43        android:debuggable="true"
+44        android:extractNativeLibs="false"
+45        android:fullBackupContent="@xml/backup_rules"
+45-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:25:9-54
+46        android:icon="@android:drawable/ic_menu_camera"
+46-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:26:9-56
+47        android:label="@string/app_name"
+47-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:27:9-41
+48        android:roundIcon="@android:drawable/ic_menu_camera"
+48-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:28:9-61
+49        android:supportsRtl="true"
+49-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:29:9-35
+50        android:theme="@style/Theme.SPCMicRecorder" >
+50-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:30:9-52
+51        <activity
+51-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:33:9-48:20
+52            android:name="com.spcmic.recorder.MainActivity"
+52-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:34:13-41
+53            android:exported="true"
+53-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:35:13-36
+54            android:screenOrientation="portrait" >
+54-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:36:13-49
+55            <intent-filter>
+55-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:37:13-40:29
+56                <action android:name="android.intent.action.MAIN" />
+56-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:38:17-69
+56-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:38:25-66
+57
+58                <category android:name="android.intent.category.LAUNCHER" />
+58-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:39:17-77
+58-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:39:27-74
+59            </intent-filter>
+60
+61            <!-- USB device filter -->
+62            <intent-filter>
+62-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:43:13-45:29
+63                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+63-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:44:17-90
+63-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:44:25-87
+64            </intent-filter>
+65
+66            <meta-data
+66-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:46:13-47:57
+67                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+67-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:46:24-86
+68                android:resource="@xml/device_filter" />
+68-->D:\Audio_Projects\Android_spcmic_recorder\app\src\main\AndroidManifest.xml:47:17-54
+69        </activity>
+70
+71        <provider
+71-->[androidx.emoji2:emoji2:1.2.0] C:\Users\hcenteno\.gradle\caches\transforms-4\c3fdc3de6820e7330a5358a8ccf59d96\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:24:9-32:20
+72            android:name="androidx.startup.InitializationProvider"
+72-->[androidx.emoji2:emoji2:1.2.0] C:\Users\hcenteno\.gradle\caches\transforms-4\c3fdc3de6820e7330a5358a8ccf59d96\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:25:13-67
+73            android:authorities="com.spcmic.recorder.androidx-startup"
+73-->[androidx.emoji2:emoji2:1.2.0] C:\Users\hcenteno\.gradle\caches\transforms-4\c3fdc3de6820e7330a5358a8ccf59d96\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:26:13-68
+74            android:exported="false" >
+74-->[androidx.emoji2:emoji2:1.2.0] C:\Users\hcenteno\.gradle\caches\transforms-4\c3fdc3de6820e7330a5358a8ccf59d96\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:27:13-37
+75            <meta-data
+75-->[androidx.emoji2:emoji2:1.2.0] C:\Users\hcenteno\.gradle\caches\transforms-4\c3fdc3de6820e7330a5358a8ccf59d96\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:29:13-31:52
+76                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+76-->[androidx.emoji2:emoji2:1.2.0] C:\Users\hcenteno\.gradle\caches\transforms-4\c3fdc3de6820e7330a5358a8ccf59d96\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:30:17-75
+77                android:value="androidx.startup" />
+77-->[androidx.emoji2:emoji2:1.2.0] C:\Users\hcenteno\.gradle\caches\transforms-4\c3fdc3de6820e7330a5358a8ccf59d96\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:31:17-49
+78            <meta-data
+78-->[androidx.lifecycle:lifecycle-process:2.7.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fd6969bce4cabc7e50e733d3f1ed33e5\transformed\jetified-lifecycle-process-2.7.0\AndroidManifest.xml:29:13-31:52
+79                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+79-->[androidx.lifecycle:lifecycle-process:2.7.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fd6969bce4cabc7e50e733d3f1ed33e5\transformed\jetified-lifecycle-process-2.7.0\AndroidManifest.xml:30:17-78
+80                android:value="androidx.startup" />
+80-->[androidx.lifecycle:lifecycle-process:2.7.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fd6969bce4cabc7e50e733d3f1ed33e5\transformed\jetified-lifecycle-process-2.7.0\AndroidManifest.xml:31:17-49
+81            <meta-data
+81-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:29:13-31:52
+82                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+82-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:30:17-85
+83                android:value="androidx.startup" />
+83-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:31:17-49
+84        </provider>
+85
+86        <receiver
+86-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:34:9-52:20
+87            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+87-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:35:13-76
+88            android:directBootAware="false"
+88-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:36:13-44
+89            android:enabled="true"
+89-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:37:13-35
+90            android:exported="true"
+90-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:38:13-36
+91            android:permission="android.permission.DUMP" >
+91-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:39:13-57
+92            <intent-filter>
+92-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:40:13-42:29
+93                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+93-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:41:17-91
+93-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:41:25-88
+94            </intent-filter>
+95            <intent-filter>
+95-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:43:13-45:29
+96                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+96-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:44:17-85
+96-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:44:25-82
+97            </intent-filter>
+98            <intent-filter>
+98-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:46:13-48:29
+99                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+99-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:47:17-88
+99-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:47:25-85
+100            </intent-filter>
+101            <intent-filter>
+101-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:49:13-51:29
+102                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+102-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:50:17-95
+102-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\hcenteno\.gradle\caches\transforms-4\fa7d928a277d4226eb60828049f6a917\transformed\jetified-profileinstaller-1.3.0\AndroidManifest.xml:50:25-92
+103            </intent-filter>
+104        </receiver>
+105    </application>
+106
+107</manifest>

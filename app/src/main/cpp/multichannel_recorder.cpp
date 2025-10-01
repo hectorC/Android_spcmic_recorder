@@ -1,0 +1,304 @@
+#include "multichannel_recorder.h"
+#include <android/log.h>
+#include <chrono>
+#include <algorithm>
+#include <cmath>
+
+#define LOG_TAG "MultichannelRecorder"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+MultichannelRecorder::MultichannelRecorder(USBAudioInterface* audioInterface)
+    : m_audioInterface(audioInterface)
+    , m_wavWriter(nullptr)
+    , m_isRecording(false)
+    , m_isMonitoring(false)
+    , m_totalSamples(0) {
+    
+    // Initialize channel levels array
+    m_channelLevels.resize(CHANNEL_COUNT, 0.0f);
+    
+    LOGI("MultichannelRecorder created for %d channels", CHANNEL_COUNT);
+}
+
+MultichannelRecorder::~MultichannelRecorder() {
+    stopRecording();
+    stopMonitoring();
+    
+    if (m_wavWriter) {
+        delete m_wavWriter;
+        m_wavWriter = nullptr;
+    }
+    
+    LOGI("MultichannelRecorder destroyed");
+}
+
+bool MultichannelRecorder::startRecording(const std::string& outputPath) {
+    if (m_isRecording.load()) {
+        LOGE("Recording already in progress");
+        return false;
+    }
+    
+    if (!m_audioInterface) {
+        LOGE("No audio interface available");
+        return false;
+    }
+    
+    LOGI("Starting recording to: %s", outputPath.c_str());
+    
+    // CRITICAL: Stop monitoring thread to avoid two threads reading from the same USB device
+    // The recording thread will handle both recording AND level meter updates
+    if (m_isMonitoring.load()) {
+        LOGI("Stopping monitoring thread before recording");
+        stopMonitoring();
+    }
+    
+    // Create WAV writer
+    if (m_wavWriter) {
+        delete m_wavWriter;
+    }
+    
+    m_wavWriter = new WAVWriter();
+    if (!m_wavWriter->open(outputPath, SAMPLE_RATE, CHANNEL_COUNT, BYTES_PER_SAMPLE * 8)) {
+        LOGE("Failed to create WAV file: %s", outputPath.c_str());
+        delete m_wavWriter;
+        m_wavWriter = nullptr;
+        return false;
+    }
+    
+    // Start USB audio streaming
+    if (!m_audioInterface->startStreaming()) {
+        LOGE("Failed to start USB audio streaming");
+        m_wavWriter->close();
+        delete m_wavWriter;
+        m_wavWriter = nullptr;
+        return false;
+    }
+    
+    // Reset recording state
+    m_totalSamples = 0;
+    m_startTime = std::chrono::high_resolution_clock::now();
+    
+    // Start recording thread
+    m_isRecording.store(true);
+    m_recordingThread = std::thread(&MultichannelRecorder::recordingThreadFunction, this);
+    
+    LOGI("Recording started successfully");
+    return true;
+}
+
+bool MultichannelRecorder::stopRecording() {
+    if (!m_isRecording.load()) {
+        return true;
+    }
+    
+    LOGI("Stopping recording");
+    
+    // Signal recording thread to stop
+    m_isRecording.store(false);
+    
+    // Wait for recording thread to finish
+    if (m_recordingThread.joinable()) {
+        m_recordingThread.join();
+    }
+    
+    // Restart monitoring thread after recording stops to continue level meter updates
+    LOGI("Restarting monitoring thread after recording");
+    startMonitoring();
+    
+    // Stop USB audio streaming
+    if (m_audioInterface) {
+        m_audioInterface->stopStreaming();
+    }
+    
+    // Close WAV file
+    if (m_wavWriter) {
+        m_wavWriter->close();
+        delete m_wavWriter;
+        m_wavWriter = nullptr;
+    }
+    
+    LOGI("Recording stopped. Total samples: %zu", m_totalSamples);
+    return true;
+}
+
+bool MultichannelRecorder::startMonitoring() {
+    if (m_isMonitoring.load()) {
+        LOGI("Already monitoring");
+        return true;
+    }
+    
+    if (!m_audioInterface) {
+        LOGE("No audio interface available for monitoring");
+        return false;
+    }
+    
+    LOGI("Starting audio monitoring for level meters");
+    
+    // Start USB audio streaming
+    if (!m_audioInterface->startStreaming()) {
+        LOGE("Failed to start USB audio streaming for monitoring");
+        return false;
+    }
+    
+    // Set monitoring flag
+    m_isMonitoring.store(true);
+    
+    // Start monitoring thread
+    m_monitoringThread = std::thread(&MultichannelRecorder::monitoringThreadFunction, this);
+    
+    LOGI("Audio monitoring started");
+    return true;
+}
+
+void MultichannelRecorder::stopMonitoring() {
+    if (!m_isMonitoring.load()) {
+        return;
+    }
+    
+    LOGI("Stopping audio monitoring");
+    
+    // Signal monitoring thread to stop
+    m_isMonitoring.store(false);
+    
+    // Wait for monitoring thread to finish
+    if (m_monitoringThread.joinable()) {
+        m_monitoringThread.join();
+    }
+    
+    // Stop USB audio streaming (only if not recording)
+    if (!m_isRecording.load() && m_audioInterface) {
+        m_audioInterface->stopStreaming();
+    }
+    
+    LOGI("Audio monitoring stopped");
+}
+
+void MultichannelRecorder::recordingThreadFunction() {
+    LOGI("Recording thread started");
+    
+    uint8_t buffer[BUFFER_SIZE];
+    
+    while (m_isRecording.load()) {
+        // Read audio data from USB interface
+        size_t bytesRead = m_audioInterface->readAudioData(buffer, BUFFER_SIZE);
+        
+        if (bytesRead > 0) {
+            // Process the audio buffer
+            processAudioBuffer(buffer, bytesRead);
+            
+            // Write to WAV file
+            if (m_wavWriter) {
+                m_wavWriter->writeData(buffer, bytesRead);
+            }
+            
+            // Update total samples
+            size_t samplesInBuffer = bytesRead / (CHANNEL_COUNT * BYTES_PER_SAMPLE);
+            m_totalSamples += samplesInBuffer;
+            
+            // Calculate channel levels for UI
+            calculateChannelLevels(buffer, bytesRead);
+        } else {
+            // No data available, small delay to prevent busy waiting
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    
+    LOGI("Recording thread finished");
+}
+
+void MultichannelRecorder::monitoringThreadFunction() {
+    LOGI("Monitoring thread started");
+    
+    uint8_t buffer[BUFFER_SIZE];
+    
+    while (m_isMonitoring.load()) {
+        // Read audio data from USB interface (same as recording, but don't save to file)
+        size_t bytesRead = m_audioInterface->readAudioData(buffer, BUFFER_SIZE);
+        
+        if (bytesRead > 0) {
+            // Only calculate channel levels for UI (don't save to file)
+            calculateChannelLevels(buffer, bytesRead);
+        } else {
+            // No data available, small delay to prevent busy waiting
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    
+    LOGI("Monitoring thread finished");
+}
+
+void MultichannelRecorder::processAudioBuffer(const uint8_t* buffer, size_t bufferSize) {
+    // This function can be used for real-time audio processing
+    // such as filtering, gain adjustment, etc.
+    
+    // For now, we just pass the data through unchanged
+    // but this is where you could add:
+    // - Real-time filtering
+    // - Automatic gain control
+    // - Noise reduction
+    // - Format conversion
+}
+
+void MultichannelRecorder::calculateChannelLevels(const uint8_t* buffer, size_t bufferSize) {
+    std::lock_guard<std::mutex> lock(m_levelsMutex);
+    
+    // Calculate RMS levels for each channel
+    std::vector<double> channelSums(CHANNEL_COUNT, 0.0);
+    size_t samplesPerChannel = bufferSize / (CHANNEL_COUNT * BYTES_PER_SAMPLE);
+    
+    if (samplesPerChannel == 0) {
+        return;
+    }
+    
+    // Process interleaved 24-bit samples
+    const uint8_t* samplePtr = buffer;
+    
+    for (size_t sample = 0; sample < samplesPerChannel; ++sample) {
+        for (int channel = 0; channel < CHANNEL_COUNT; ++channel) {
+            // Extract 24-bit sample
+            int32_t sampleValue = extract24BitSample(samplePtr);
+            samplePtr += BYTES_PER_SAMPLE;
+            
+            // Accumulate squared values for RMS calculation
+            double normalizedSample = static_cast<double>(sampleValue) / 8388608.0; // 2^23
+            channelSums[channel] += normalizedSample * normalizedSample;
+        }
+    }
+    
+    // Calculate RMS levels and update channel levels array
+    for (int channel = 0; channel < CHANNEL_COUNT; ++channel) {
+        double rms = std::sqrt(channelSums[channel] / samplesPerChannel);
+        m_channelLevels[channel] = static_cast<float>(rms);
+    }
+}
+
+int32_t MultichannelRecorder::extract24BitSample(const uint8_t* data) {
+    // Extract 24-bit sample (little-endian) and sign-extend to 32-bit
+    int32_t sample = (data[0]) | (data[1] << 8) | (data[2] << 16);
+    
+    // Sign extend from 24-bit to 32-bit
+    if (sample & 0x800000) {
+        sample |= 0xFF000000;
+    }
+    
+    return sample;
+}
+
+float MultichannelRecorder::normalizeLevel(int32_t sample) {
+    // Normalize 24-bit sample to 0.0-1.0 range
+    return std::abs(static_cast<float>(sample)) / 8388608.0f; // 2^23
+}
+
+std::vector<float> MultichannelRecorder::getChannelLevels() {
+    std::lock_guard<std::mutex> lock(m_levelsMutex);
+    return m_channelLevels;
+}
+
+double MultichannelRecorder::getRecordingDuration() const {
+    if (m_totalSamples == 0) {
+        return 0.0;
+    }
+    
+    return static_cast<double>(m_totalSamples) / SAMPLE_RATE;
+}

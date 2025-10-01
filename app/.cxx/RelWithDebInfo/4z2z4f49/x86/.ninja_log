@@ -1,0 +1,11 @@
+# ninja log v5
+16	66	7809852990546846	CMakeFiles/spcmic_recorder.dir/uac_protocol.cpp.o	601c8aa2224bfa4f
+0	427	7809852993922163	CMakeFiles/spcmic_recorder.dir/usb_audio_interface.cpp.o	a9dc68aa6c21ff35
+6	560	7809852995423604	CMakeFiles/spcmic_recorder.dir/native-lib.cpp.o	4f69a63777e98404
+663	739	7809852997248317	D:/Audio_Projects/Android_spcmic_recorder/app/build/intermediates/cxx/RelWithDebInfo/4z2z4f49/obj/x86/libspcmic_recorder.so	51fbedc1c2cd2ab8
+20	621	7809852996036444	CMakeFiles/spcmic_recorder.dir/wav_writer.cpp.o	fc143825e3859ca3
+11	663	7809852996302906	CMakeFiles/spcmic_recorder.dir/multichannel_recorder.cpp.o	447abd159da71456
+0	9	0	clean	4cbc7883e933d21e
+2	251	7809934340624606	build.ninja	966df62380f5dedc
+0	7	0	clean	4cbc7883e933d21e
+1	8	0	clean	4cbc7883e933d21e

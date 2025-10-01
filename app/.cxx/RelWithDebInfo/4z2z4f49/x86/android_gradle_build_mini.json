@@ -1,0 +1,27 @@
+{
+  "buildFiles": [
+    "D:\\Audio_Projects\\Android_spcmic_recorder\\app\\src\\main\\cpp\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "C:\\Users\\hcenteno\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+      "-C",
+      "D:\\Audio_Projects\\Android_spcmic_recorder\\app\\.cxx\\RelWithDebInfo\\4z2z4f49\\x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "C:\\Users\\hcenteno\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-C",
+    "D:\\Audio_Projects\\Android_spcmic_recorder\\app\\.cxx\\RelWithDebInfo\\4z2z4f49\\x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "spcmic_recorder::@6890427a1f51a3e7e1df": {
+      "artifactName": "spcmic_recorder",
+      "abi": "x86",
+      "output": "D:\\Audio_Projects\\Android_spcmic_recorder\\app\\build\\intermediates\\cxx\\RelWithDebInfo\\4z2z4f49\\obj\\x86\\libspcmic_recorder.so",
+      "runtimeFiles": []
+    }
+  }
+}

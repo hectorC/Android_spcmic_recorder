@@ -1,0 +1,16 @@
+# ninja log v5
+16	75	7810305909221621	CMakeFiles/spcmic_recorder.dir/uac_protocol.cpp.o	40ba095d28d78264
+3	425	7810327596151285	CMakeFiles/spcmic_recorder.dir/usb_audio_interface.cpp.o	baab22b41fac7d0c
+3	641	7810305914692866	CMakeFiles/spcmic_recorder.dir/native-lib.cpp.o	1d8cf66b1acff69b
+26	658	7810305914968939	CMakeFiles/spcmic_recorder.dir/wav_writer.cpp.o	518443d026d05fd8
+21	708	7810305915394390	CMakeFiles/spcmic_recorder.dir/multichannel_recorder.cpp.o	ef008b36748c4fb8
+425	537	7810327597412736	D:/Audio_Projects/Android_spcmic_recorder/app/build/intermediates/cxx/Debug/d6y485z1/obj/armeabi-v7a/libspcmic_recorder.so	8e7dab090485d166
+0	9	0	clean	4cbc7883e933d21e
+3	421	7810328476095695	CMakeFiles/spcmic_recorder.dir/usb_audio_interface.cpp.o	baab22b41fac7d0c
+421	505	7810328476958021	D:/Audio_Projects/Android_spcmic_recorder/app/build/intermediates/cxx/Debug/d6y485z1/obj/armeabi-v7a/libspcmic_recorder.so	8e7dab090485d166
+4	642	7810330510967560	CMakeFiles/spcmic_recorder.dir/multichannel_recorder.cpp.o	ef008b36748c4fb8
+642	748	7810330512199262	D:/Audio_Projects/Android_spcmic_recorder/app/build/intermediates/cxx/Debug/d6y485z1/obj/armeabi-v7a/libspcmic_recorder.so	8e7dab090485d166
+3	634	7810331668346105	CMakeFiles/spcmic_recorder.dir/multichannel_recorder.cpp.o	ef008b36748c4fb8
+635	737	7810331669538157	D:/Audio_Projects/Android_spcmic_recorder/app/build/intermediates/cxx/Debug/d6y485z1/obj/armeabi-v7a/libspcmic_recorder.so	8e7dab090485d166
+3	633	7810338038593532	CMakeFiles/spcmic_recorder.dir/multichannel_recorder.cpp.o	ef008b36748c4fb8
+634	742	7810338039849807	D:/Audio_Projects/Android_spcmic_recorder/app/build/intermediates/cxx/Debug/d6y485z1/obj/armeabi-v7a/libspcmic_recorder.so	8e7dab090485d166

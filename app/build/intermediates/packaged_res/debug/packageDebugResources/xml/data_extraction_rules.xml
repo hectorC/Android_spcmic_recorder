@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Audio recordings should not be backed up to cloud -->
+        <exclude domain="file" path="SPCMicRecorder/" />
+    </cloud-backup>
+    <device-transfer>
+        <!-- Allow device transfer for settings but not recordings -->
+        <exclude domain="file" path="SPCMicRecorder/" />
+    </device-transfer>
+</data-extraction-rules>

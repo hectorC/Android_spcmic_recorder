@@ -1,0 +1,3 @@
+D:/Audio_Projects/Android_spcmic_recorder/app/.cxx/Debug/d6y485z1/x86_64/CMakeFiles/spcmic_recorder.dir
+D:/Audio_Projects/Android_spcmic_recorder/app/.cxx/Debug/d6y485z1/x86_64/CMakeFiles/edit_cache.dir
+D:/Audio_Projects/Android_spcmic_recorder/app/.cxx/Debug/d6y485z1/x86_64/CMakeFiles/rebuild_cache.dir

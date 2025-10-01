@@ -1,0 +1,3 @@
+D:/Audio_Projects/Android_spcmic_recorder/app/.cxx/RelWithDebInfo/4z2z4f49/arm64-v8a/CMakeFiles/spcmic_recorder.dir
+D:/Audio_Projects/Android_spcmic_recorder/app/.cxx/RelWithDebInfo/4z2z4f49/arm64-v8a/CMakeFiles/edit_cache.dir
+D:/Audio_Projects/Android_spcmic_recorder/app/.cxx/RelWithDebInfo/4z2z4f49/arm64-v8a/CMakeFiles/rebuild_cache.dir
