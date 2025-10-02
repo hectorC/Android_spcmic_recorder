@@ -13,7 +13,8 @@ MultichannelRecorder::MultichannelRecorder(USBAudioInterface* audioInterface)
     , m_wavWriter(nullptr)
     , m_isRecording(false)
     , m_isMonitoring(false)
-    , m_totalSamples(0) {
+    , m_totalSamples(0)
+    , m_bufferSize(DEFAULT_BUFFER_SIZE) {
     
     // Initialize channel levels array
     m_channelLevels.resize(CHANNEL_COUNT, 0.0f);
@@ -67,6 +68,21 @@ bool MultichannelRecorder::startRecording(const std::string& outputPath) {
         m_wavWriter = nullptr;
         return false;
     }
+
+    const size_t frameSize = static_cast<size_t>(CHANNEL_COUNT) * BYTES_PER_SAMPLE;
+    size_t recommendedSize = m_audioInterface->getRecommendedBufferSize();
+    if (recommendedSize == 0) {
+        recommendedSize = DEFAULT_BUFFER_SIZE;
+    }
+    if (recommendedSize < frameSize) {
+        recommendedSize = frameSize;
+    }
+    if (recommendedSize % frameSize != 0) {
+        recommendedSize = ((recommendedSize + frameSize - 1) / frameSize) * frameSize;
+    }
+    m_bufferSize = recommendedSize;
+
+    LOGI("Recording buffer size configured: %zu bytes (frameSize=%zu)", m_bufferSize, frameSize);
     
     // Reset recording state
     m_totalSamples = 0;
@@ -166,19 +182,23 @@ void MultichannelRecorder::stopMonitoring() {
 void MultichannelRecorder::recordingThreadFunction() {
     LOGI("Recording thread started");
     
-    uint8_t buffer[BUFFER_SIZE];
+    if (m_bufferSize == 0) {
+        m_bufferSize = DEFAULT_BUFFER_SIZE;
+    }
+
+    std::vector<uint8_t> buffer(m_bufferSize);
     
     while (m_isRecording.load()) {
         // Read audio data from USB interface
-        size_t bytesRead = m_audioInterface->readAudioData(buffer, BUFFER_SIZE);
+    size_t bytesRead = m_audioInterface->readAudioData(buffer.data(), buffer.size());
         
         if (bytesRead > 0) {
             // Process the audio buffer
-            processAudioBuffer(buffer, bytesRead);
+            processAudioBuffer(buffer.data(), bytesRead);
             
             // Write to WAV file
             if (m_wavWriter) {
-                m_wavWriter->writeData(buffer, bytesRead);
+                m_wavWriter->writeData(buffer.data(), bytesRead);
             }
             
             // Update total samples
@@ -186,7 +206,7 @@ void MultichannelRecorder::recordingThreadFunction() {
             m_totalSamples += samplesInBuffer;
             
             // Calculate channel levels for UI
-            calculateChannelLevels(buffer, bytesRead);
+            calculateChannelLevels(buffer.data(), bytesRead);
         } else {
             // No data available, small delay to prevent busy waiting
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -199,15 +219,19 @@ void MultichannelRecorder::recordingThreadFunction() {
 void MultichannelRecorder::monitoringThreadFunction() {
     LOGI("Monitoring thread started");
     
-    uint8_t buffer[BUFFER_SIZE];
+    size_t monitoringBufferSize = m_bufferSize;
+    if (monitoringBufferSize == 0) {
+        monitoringBufferSize = DEFAULT_BUFFER_SIZE;
+    }
+    std::vector<uint8_t> buffer(monitoringBufferSize);
     
     while (m_isMonitoring.load()) {
         // Read audio data from USB interface (same as recording, but don't save to file)
-        size_t bytesRead = m_audioInterface->readAudioData(buffer, BUFFER_SIZE);
+    size_t bytesRead = m_audioInterface->readAudioData(buffer.data(), buffer.size());
         
         if (bytesRead > 0) {
             // Only calculate channel levels for UI (don't save to file)
-            calculateChannelLevels(buffer, bytesRead);
+            calculateChannelLevels(buffer.data(), bytesRead);
         } else {
             // No data available, small delay to prevent busy waiting
             std::this_thread::sleep_for(std::chrono::milliseconds(1));

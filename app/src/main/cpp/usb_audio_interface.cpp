@@ -11,6 +11,7 @@
 #include <thread>
 #include <chrono>
 #include <algorithm>
+#include <vector>
 
 #define LOG_TAG "USBAudioInterface"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -20,6 +21,96 @@
 #ifndef USBDEVFS_GET_CURRENT_FRAME
 #define USBDEVFS_GET_CURRENT_FRAME _IOR('U', 19, unsigned int)
 #endif
+
+#ifndef USB_DT_CONFIG
+#define USB_DT_CONFIG 0x02
+#endif
+#ifndef USB_DT_INTERFACE
+#define USB_DT_INTERFACE 0x04
+#endif
+#ifndef USB_DT_ENDPOINT
+#define USB_DT_ENDPOINT 0x05
+#endif
+#ifndef USB_DT_SS_ENDPOINT_COMP
+#define USB_DT_SS_ENDPOINT_COMP 0x30
+#endif
+#ifndef USB_REQ_GET_DESCRIPTOR
+#define USB_REQ_GET_DESCRIPTOR 0x06
+#endif
+#ifndef USB_DIR_IN
+#define USB_DIR_IN 0x80
+#endif
+#ifndef USB_TYPE_STANDARD
+#define USB_TYPE_STANDARD 0x00
+#endif
+#ifndef USB_RECIP_DEVICE
+#define USB_RECIP_DEVICE 0x00
+#endif
+#ifndef USB_ENDPOINT_DIR_MASK
+#define USB_ENDPOINT_DIR_MASK 0x80
+#endif
+#ifndef USB_ENDPOINT_XFERTYPE_MASK
+#define USB_ENDPOINT_XFERTYPE_MASK 0x03
+#endif
+#ifndef USB_ENDPOINT_XFER_ISOC
+#define USB_ENDPOINT_XFER_ISOC 0x01
+#endif
+
+namespace {
+
+#pragma pack(push, 1)
+struct USBDescriptorHeader {
+    uint8_t bLength;
+    uint8_t bDescriptorType;
+};
+
+struct USBConfigDescriptor {
+    uint8_t bLength;
+    uint8_t bDescriptorType;
+    uint16_t wTotalLength;
+    uint8_t bNumInterfaces;
+    uint8_t bConfigurationValue;
+    uint8_t iConfiguration;
+    uint8_t bmAttributes;
+    uint8_t bMaxPower;
+};
+
+struct USBInterfaceDescriptor {
+    uint8_t bLength;
+    uint8_t bDescriptorType;
+    uint8_t bInterfaceNumber;
+    uint8_t bAlternateSetting;
+    uint8_t bNumEndpoints;
+    uint8_t bInterfaceClass;
+    uint8_t bInterfaceSubClass;
+    uint8_t bInterfaceProtocol;
+    uint8_t iInterface;
+};
+
+struct USBEndpointDescriptor {
+    uint8_t bLength;
+    uint8_t bDescriptorType;
+    uint8_t bEndpointAddress;
+    uint8_t bmAttributes;
+    uint16_t wMaxPacketSize;
+    uint8_t bInterval;
+};
+
+struct USBSSEndpointCompanionDescriptor {
+    uint8_t bLength;
+    uint8_t bDescriptorType;
+    uint8_t bMaxBurst;
+    uint8_t bmAttributes;
+    uint16_t wBytesPerInterval;
+};
+#pragma pack(pop)
+
+inline uint16_t read_le16(const void* ptr) {
+    const uint8_t* bytes = static_cast<const uint8_t*>(ptr);
+    return static_cast<uint16_t>(bytes[0]) | static_cast<uint16_t>(bytes[1] << 8);
+}
+
+} // namespace
 
 USBAudioInterface::USBAudioInterface() 
     : m_deviceFd(-1)
@@ -49,7 +140,17 @@ USBAudioInterface::USBAudioInterface()
     , m_notStreamingCount(0)
     , m_noFramesCount(0)
     , m_currentFrameNumber(0)
-    , m_frameNumberInitialized(false) {
+    , m_frameNumberInitialized(false)
+    , m_streamInterfaceNumber(-1)
+    , m_streamAltSetting(-1)
+    , m_isoPacketSize(0)
+    , m_packetsPerUrb(0)
+    , m_urbBufferSize(0)
+    , m_bytesPerInterval(0)
+    , m_packetsPerServiceInterval(0)
+    , m_endpointInfoReady(false)
+    , m_isHighSpeed(false)
+    , m_isSuperSpeed(false) {
 }
 
 USBAudioInterface::~USBAudioInterface() {
@@ -92,46 +193,39 @@ bool USBAudioInterface::initialize(int deviceFd, int sampleRate, int channelCoun
 }
 
 bool USBAudioInterface::findAudioEndpoint() {
-    LOGI("Searching for audio input endpoint");
-    
-    // From SPCMic device logs, we know the audio endpoint is 0x81 (Address 129)
-    // UsbEndpoint[mAddress=129,mAttributes=13,mMaxPacketSize=5104,mInterval=1]
-    m_audioInEndpoint = 0x81;
-    
-    LOGI("Using SPCMic audio input endpoint: 0x%02x", m_audioInEndpoint);
+    LOGI("Parsing configuration descriptor to locate audio streaming endpoint");
+
+    std::vector<uint8_t> configDescriptor;
+    if (!fetchConfigurationDescriptor(configDescriptor)) {
+        LOGE("Failed to fetch configuration descriptor");
+        return false;
+    }
+
+    if (!parseStreamingEndpoint(configDescriptor)) {
+        LOGE("Failed to parse audio streaming endpoint from descriptor");
+        return false;
+    }
+
+    LOGI("Selected audio streaming interface %d alt %d, endpoint 0x%02x", 
+         m_streamInterfaceNumber, m_streamAltSetting, m_audioInEndpoint);
+    LOGI("Endpoint characteristics: isoPacketSize=%zu bytes, servicePackets=%zu, bytesPerInterval=%zu", 
+         m_isoPacketSize, m_packetsPerServiceInterval, m_bytesPerInterval);
+
     return true;
 }
 
 bool USBAudioInterface::configureUACDevice() {
     LOGI("Configuring USB Audio Class device");
     
-    // Android USB host API provides a pre-configured file descriptor
-    // We should work with what Android has already set up rather than
-    // trying to reconfigure the device with raw USB ioctls
-    
-    LOGI("Using Android USB host file descriptor directly");
-    
-    // Set the endpoint based on device info from logs
-    m_audioInEndpoint = 0x81;  // From device logs: Address 129
-    LOGI("Using audio endpoint: 0x%02x", m_audioInEndpoint);
-    
-    // Test if we can communicate with the endpoint
-    uint8_t testBuffer[1024];
-    struct usbdevfs_bulktransfer bulk;
-    bulk.ep = m_audioInEndpoint;
-    bulk.len = sizeof(testBuffer);
-    bulk.data = testBuffer;
-    bulk.timeout = 100; // Short timeout for testing
-    
-    int result = ioctl(m_deviceFd, USBDEVFS_BULK, &bulk);
-    if (result >= 0) {
-        LOGI("Successfully communicated with audio endpoint, received %d bytes", result);
-    } else if (errno == ETIMEDOUT || errno == EAGAIN) {
-        LOGI("Audio endpoint is accessible (timeout/no data ready)");
-    } else {
-        LOGE("Failed to access audio endpoint: %s", strerror(errno));
-        LOGI("Continuing anyway - will try during actual recording");
+    if (!m_endpointInfoReady) {
+        LOGE("Cannot configure UAC device before endpoint discovery");
+        return false;
     }
+
+    LOGI("Using Android-provided device file descriptor; streaming endpoint 0x%02x on interface %d alt %d", 
+         m_audioInEndpoint, m_streamInterfaceNumber, m_streamAltSetting);
+    LOGI("Isochronous geometry: isoPacketSize=%zu bytes, servicePackets=%zu, bytesPerInterval=%zu", 
+         m_isoPacketSize, m_packetsPerServiceInterval, m_bytesPerInterval);
     
     LOGI("USB Audio Class device configured successfully");
     return true;
@@ -204,7 +298,8 @@ bool USBAudioInterface::configureSampleRate(int sampleRate) {
     // Try UAC 2.0 method (Clock Source Unit)
     ctrl.bRequestType = 0x21; // Class, Interface, Host to Device
     ctrl.wValue = (UAC_SAMPLING_FREQ_CONTROL << 8) | 0x00;
-    ctrl.wIndex = (3 << 8) | 0x00; // Interface 3 (SPCMic audio streaming), Clock Source ID 0
+    int streamingInterface = (m_streamInterfaceNumber >= 0) ? m_streamInterfaceNumber : 3;
+    ctrl.wIndex = static_cast<uint16_t>((streamingInterface << 8) | 0x00); // Clock Source ID assumed 0
     ctrl.wLength = 4; // 32-bit sample rate for UAC 2.0
     
     result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
@@ -228,6 +323,331 @@ bool USBAudioInterface::configureChannels(int channels) {
     // alternate setting of the audio streaming interface that supports
     // the desired number of channels
     
+    return true;
+}
+
+bool USBAudioInterface::fetchConfigurationDescriptor(std::vector<uint8_t>& descriptor) {
+    descriptor.clear();
+
+    if (m_deviceFd < 0) {
+        LOGE("Invalid device handle when fetching configuration descriptor");
+        return false;
+    }
+
+    constexpr size_t MAX_CONFIG_DESCRIPTOR_SIZE = 4096;
+
+    USBConfigDescriptor header = {};
+    struct usbdevfs_ctrltransfer ctrl = {};
+    ctrl.bRequestType = USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE;
+    ctrl.bRequest = USB_REQ_GET_DESCRIPTOR;
+    ctrl.wValue = static_cast<uint16_t>((USB_DT_CONFIG << 8) | 0);
+    ctrl.wIndex = 0;
+    ctrl.wLength = sizeof(header);
+    ctrl.timeout = 1000;
+    ctrl.data = &header;
+
+    int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
+    if (result < 0) {
+        LOGE("Failed to fetch configuration descriptor header: %s", strerror(errno));
+        return false;
+    }
+
+    uint16_t totalLength = read_le16(&header.wTotalLength);
+    if (totalLength < sizeof(USBConfigDescriptor)) {
+        LOGE("Configuration descriptor total length too small: %u", totalLength);
+        return false;
+    }
+
+    size_t fetchLength = std::min(static_cast<size_t>(totalLength), MAX_CONFIG_DESCRIPTOR_SIZE);
+    descriptor.resize(fetchLength);
+
+    ctrl.wLength = static_cast<uint16_t>(fetchLength);
+    ctrl.data = descriptor.data();
+
+    result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
+    if (result < 0) {
+        LOGE("Failed to fetch full configuration descriptor: %s", strerror(errno));
+        descriptor.clear();
+        return false;
+    }
+
+    if (fetchLength < totalLength) {
+        LOGI("Configuration descriptor truncated from %u to %zu bytes", totalLength, fetchLength);
+    }
+
+    return true;
+}
+
+bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descriptor) {
+    m_streamInterfaceNumber = -1;
+    m_streamAltSetting = -1;
+    m_audioInEndpoint = -1;
+    m_isoPacketSize = 0;
+    m_packetsPerServiceInterval = 0;
+    m_bytesPerInterval = 0;
+    m_endpointInfoReady = false;
+    m_isHighSpeed = false;
+    m_isSuperSpeed = false;
+
+    struct EndpointSelection {
+        bool valid = false;
+        int interfaceNumber = -1;
+        int altSetting = -1;
+        uint8_t endpointAddress = 0;
+        size_t isoPacketSize = 0;
+        size_t bytesPerInterval = 0;
+        size_t packetsPerServiceInterval = 1;
+        bool isSuperSpeed = false;
+    };
+
+    EndpointSelection best;
+    EndpointSelection current;
+    bool inCandidateInterface = false;
+
+    auto evaluateCurrent = [&](const EndpointSelection& candidate) {
+        if (!candidate.valid) {
+            return;
+        }
+        if (!best.valid || candidate.bytesPerInterval > best.bytesPerInterval) {
+            best = candidate;
+        }
+    };
+
+    size_t offset = 0;
+    while (offset + sizeof(USBDescriptorHeader) <= descriptor.size()) {
+        const auto* header = reinterpret_cast<const USBDescriptorHeader*>(&descriptor[offset]);
+        if (header->bLength == 0) {
+            LOGE("Encountered zero-length USB descriptor at offset %zu", offset);
+            break;
+        }
+
+        if (offset + header->bLength > descriptor.size()) {
+            LOGE("Descriptor overruns buffer at offset %zu (length=%u, total=%zu)", 
+                 offset, header->bLength, descriptor.size());
+            break;
+        }
+
+        switch (header->bDescriptorType) {
+            case USB_DT_INTERFACE: {
+                const auto* intf = reinterpret_cast<const USBInterfaceDescriptor*>(&descriptor[offset]);
+                bool isAudioStreaming = (intf->bInterfaceClass == USB_CLASS_AUDIO &&
+                                         intf->bInterfaceSubClass == USB_SUBCLASS_AUDIOSTREAMING);
+                inCandidateInterface = isAudioStreaming && (intf->bAlternateSetting > 0);
+                current = EndpointSelection{};
+                if (inCandidateInterface) {
+                    current.interfaceNumber = intf->bInterfaceNumber;
+                    current.altSetting = intf->bAlternateSetting;
+                    current.packetsPerServiceInterval = 1;
+                    LOGI("Inspecting audio streaming interface %d alt %d", 
+                         current.interfaceNumber, current.altSetting);
+                }
+                break;
+            }
+
+            case USB_DT_ENDPOINT: {
+                if (!inCandidateInterface) {
+                    break;
+                }
+
+                const auto* ep = reinterpret_cast<const USBEndpointDescriptor*>(&descriptor[offset]);
+                uint8_t direction = ep->bEndpointAddress & USB_ENDPOINT_DIR_MASK;
+                uint8_t transferType = ep->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK;
+
+                if (direction != USB_ENDPOINT_DIR_MASK || transferType != USB_ENDPOINT_XFER_ISOC) {
+                    break; // Not an isochronous IN endpoint
+                }
+
+                EndpointSelection candidate = current;
+                candidate.endpointAddress = ep->bEndpointAddress;
+
+                uint16_t rawMaxPacket = read_le16(&ep->wMaxPacketSize);
+                int basePacketSize = rawMaxPacket & 0x7FF;
+                int additionalTransactions = (rawMaxPacket >> 11) & 0x03;
+                int transactionsPerService = additionalTransactions + 1;
+                size_t payloadPerInterval = static_cast<size_t>(basePacketSize) * transactionsPerService;
+                candidate.bytesPerInterval = payloadPerInterval;
+                candidate.isoPacketSize = payloadPerInterval;
+                candidate.packetsPerServiceInterval = std::max<size_t>(1, static_cast<size_t>(1) << std::min<int>(ep->bInterval ? (ep->bInterval - 1) : 0, 10));
+                candidate.valid = (payloadPerInterval > 0);
+                candidate.isSuperSpeed = false;
+
+                // Check for SuperSpeed companion descriptor
+                size_t nextOffset = offset + header->bLength;
+                if (nextOffset + sizeof(USBDescriptorHeader) <= descriptor.size()) {
+                    const auto* nextHeader = reinterpret_cast<const USBDescriptorHeader*>(&descriptor[nextOffset]);
+                    if (nextHeader->bDescriptorType == USB_DT_SS_ENDPOINT_COMP) {
+                        const auto* ss = reinterpret_cast<const USBSSEndpointCompanionDescriptor*>(&descriptor[nextOffset]);
+                        size_t burst = static_cast<size_t>(ss->bMaxBurst) + 1;
+                        size_t mult = static_cast<size_t>(ss->bmAttributes & 0x07) + 1;
+                        size_t bytesPerInterval = read_le16(&ss->wBytesPerInterval);
+                        if (bytesPerInterval == 0) {
+                            bytesPerInterval = static_cast<size_t>(basePacketSize) * burst * mult;
+                        }
+                        candidate.bytesPerInterval = bytesPerInterval;
+                        candidate.isoPacketSize = bytesPerInterval;
+                        candidate.packetsPerServiceInterval = std::max<size_t>(1, static_cast<size_t>(1) << std::min<int>(ep->bInterval ? (ep->bInterval - 1) : 0, 10));
+                        candidate.isSuperSpeed = true;
+                    }
+                }
+
+                if (candidate.valid) {
+                    LOGI("Found candidate endpoint 0x%02x (interface %d alt %d): basePacket=%d, transactions=%d, bytesPerInterval=%zu", 
+                         candidate.endpointAddress, candidate.interfaceNumber, candidate.altSetting,
+                         basePacketSize, transactionsPerService, candidate.bytesPerInterval);
+                    evaluateCurrent(candidate);
+                }
+
+                break;
+            }
+
+            default:
+                break;
+        }
+
+        offset += header->bLength;
+    }
+
+    if (!best.valid) {
+        LOGE("No audio streaming endpoint candidates discovered");
+        return false;
+    }
+
+    m_streamInterfaceNumber = best.interfaceNumber;
+    m_streamAltSetting = best.altSetting;
+    m_audioInEndpoint = best.endpointAddress;
+    m_isoPacketSize = best.isoPacketSize;
+    m_bytesPerInterval = best.bytesPerInterval;
+    m_packetsPerServiceInterval = std::max<size_t>(1, best.packetsPerServiceInterval);
+    m_isSuperSpeed = best.isSuperSpeed;
+    m_isHighSpeed = !best.isSuperSpeed;
+    m_endpointInfoReady = true;
+
+    LOGI("Selected endpoint 0x%02x: isoPacketSize=%zu, bytesPerInterval=%zu, packetsPerServiceInterval=%zu, superSpeed=%d", 
+         m_audioInEndpoint, m_isoPacketSize, m_bytesPerInterval, m_packetsPerServiceInterval, m_isSuperSpeed ? 1 : 0);
+
+    return true;
+}
+
+void USBAudioInterface::releaseUrbResources() {
+    if (m_urbs) {
+        for (int i = 0; i < NUM_URBS; ++i) {
+            if (m_urbs[i]) {
+                if (m_deviceFd >= 0) {
+                    ioctl(m_deviceFd, USBDEVFS_DISCARDURB, m_urbs[i]);
+                }
+                free(m_urbs[i]);
+                m_urbs[i] = nullptr;
+            }
+        }
+        free(m_urbs);
+        m_urbs = nullptr;
+    }
+
+    if (m_urbBuffers) {
+        for (int i = 0; i < NUM_URBS; ++i) {
+            if (m_urbBuffers[i]) {
+                free(m_urbBuffers[i]);
+                m_urbBuffers[i] = nullptr;
+            }
+        }
+        free(m_urbBuffers);
+        m_urbBuffers = nullptr;
+    }
+
+    m_urbsInitialized = false;
+    m_packetsPerUrb = 0;
+    m_urbBufferSize = 0;
+    m_totalSubmitted = 0;
+    m_nextSubmitIndex = 0;
+}
+
+bool USBAudioInterface::ensureUrbResources() {
+    if (m_urbsInitialized) {
+        return true;
+    }
+
+    if (!m_endpointInfoReady) {
+        LOGE("Cannot allocate URBs before endpoint info is ready");
+        return false;
+    }
+
+    if (m_isoPacketSize == 0) {
+        LOGE("Isochronous packet size not initialized");
+        return false;
+    }
+
+    size_t packetsPerService = std::max<size_t>(1, m_packetsPerServiceInterval);
+    size_t targetPackets = packetsPerService * 8; // Aim for ~8 service intervals per URB
+    size_t maxPackets = std::max<size_t>(1, MAX_URB_BUFFER_BYTES / m_isoPacketSize);
+    m_packetsPerUrb = std::max<size_t>(1, std::min(targetPackets, maxPackets));
+    m_urbBufferSize = m_isoPacketSize * m_packetsPerUrb;
+
+    size_t urbStructSize = sizeof(struct usbdevfs_urb);
+    if (m_packetsPerUrb > 1) {
+        urbStructSize += (m_packetsPerUrb - 1) * sizeof(struct usbdevfs_iso_packet_desc);
+    }
+
+    m_urbs = static_cast<struct usbdevfs_urb**>(calloc(NUM_URBS, sizeof(struct usbdevfs_urb*)));
+    if (!m_urbs) {
+        LOGE("Failed to allocate URB pointer array");
+        return false;
+    }
+
+    m_urbBuffers = static_cast<uint8_t**>(calloc(NUM_URBS, sizeof(uint8_t*)));
+    if (!m_urbBuffers) {
+        LOGE("Failed to allocate URB buffer pointer array");
+        free(m_urbs);
+        m_urbs = nullptr;
+        return false;
+    }
+
+    for (int i = 0; i < NUM_URBS; ++i) {
+        void* bufferPtr = nullptr;
+        if (posix_memalign(&bufferPtr, 64, m_urbBufferSize) != 0) {
+            bufferPtr = malloc(m_urbBufferSize);
+        }
+        if (!bufferPtr) {
+            LOGE("Failed to allocate URB buffer %d (%zu bytes)", i, m_urbBufferSize);
+            releaseUrbResources();
+            return false;
+        }
+        memset(bufferPtr, 0, m_urbBufferSize);
+        m_urbBuffers[i] = static_cast<uint8_t*>(bufferPtr);
+
+        m_urbs[i] = static_cast<struct usbdevfs_urb*>(calloc(1, urbStructSize));
+        if (!m_urbs[i]) {
+            LOGE("Failed to allocate URB structure %d", i);
+            releaseUrbResources();
+            return false;
+        }
+
+        m_urbs[i]->type = USBDEVFS_URB_TYPE_ISO;
+        m_urbs[i]->endpoint = m_audioInEndpoint;
+        m_urbs[i]->status = 0;
+        m_urbs[i]->flags = USBDEVFS_URB_ISO_ASAP;
+        m_urbs[i]->buffer = m_urbBuffers[i];
+        m_urbs[i]->buffer_length = m_urbBufferSize;
+        m_urbs[i]->actual_length = 0;
+        m_urbs[i]->start_frame = 0;
+        m_urbs[i]->number_of_packets = static_cast<unsigned>(m_packetsPerUrb);
+        m_urbs[i]->error_count = 0;
+        m_urbs[i]->signr = 0;
+        m_urbs[i]->usercontext = reinterpret_cast<void*>(static_cast<intptr_t>(i));
+
+        for (size_t pkt = 0; pkt < m_packetsPerUrb; ++pkt) {
+            m_urbs[i]->iso_frame_desc[pkt].length = static_cast<unsigned int>(m_isoPacketSize);
+            m_urbs[i]->iso_frame_desc[pkt].actual_length = 0;
+            m_urbs[i]->iso_frame_desc[pkt].status = 0;
+        }
+    }
+
+    m_urbsInitialized = true;
+    m_totalSubmitted = 0;
+    m_nextSubmitIndex = 0;
+
+    LOGI("Initialized %d isochronous URBs: packetsPerUrb=%zu, bufferSize=%zu bytes, isoPacket=%zu", 
+         NUM_URBS, m_packetsPerUrb, m_urbBufferSize, m_isoPacketSize);
+
     return true;
 }
 
@@ -285,8 +705,6 @@ bool USBAudioInterface::stopStreaming() {
     
     // Cancel any pending URBs before disabling the interface
     if (m_urbs && m_deviceFd >= 0) {
-        const int NUM_URBS = 4;
-        
         // First, cancel all URBs
         int cancelledCount = 0;
         for (int i = 0; i < NUM_URBS; i++) {
@@ -316,10 +734,13 @@ bool USBAudioInterface::stopStreaming() {
         
         LOGI("Cancelled and reaped all pending URBs");
     }
+
+    releaseUrbResources();
     
     // Disable audio streaming - set SPCMic Interface 3 back to alt setting 0
     // This stops the 84-channel audio streaming
-    setInterface(3, 0);
+    int streamingInterface = (m_streamInterfaceNumber >= 0) ? m_streamInterfaceNumber : 3;
+    setInterface(streamingInterface, 0);
     
     LOGI("USB audio streaming stopped");
     return true;
@@ -327,25 +748,31 @@ bool USBAudioInterface::stopStreaming() {
 
 bool USBAudioInterface::enableAudioStreaming() {
     LOGI("Enabling USB audio streaming for SPCMic device - following Linux USB audio driver sequence");
+    int streamingInterface = (m_streamInterfaceNumber >= 0) ? m_streamInterfaceNumber : 3;
+    int streamingAltSetting = (m_streamAltSetting >= 0) ? m_streamAltSetting : 1;
+    uint8_t streamingEndpoint = (m_audioInEndpoint >= 0) ? static_cast<uint8_t>(m_audioInEndpoint) : 0x81;
     
     // STEP 1: Reset interface to alt 0 (disable streaming)
     // This is CRITICAL - Linux USB audio driver always does this first
-    LOGI("Step 1: Setting Interface 3 to alt 0 (disable streaming)");
-    setInterface(3, 0);
+    LOGI("Step 1: Setting Interface %d to alt 0 (disable streaming)", streamingInterface);
+    setInterface(streamingInterface, 0);
     usleep(50000); // 50ms delay
     
     // STEP 2: Configure sample rate BEFORE enabling the interface
     // Linux USB audio does: usb_set_interface(alt 0) -> init_sample_rate() -> usb_set_interface(alt 1)
-    LOGI("Step 2: Configuring sample rate to 48000 Hz on endpoint 0x81");
-    uint32_t sampleRate = 48000;
+    LOGI("Step 2: Configuring sample rate to %d Hz on endpoint 0x%02x", m_sampleRate, streamingEndpoint);
+    uint8_t sampleRateData[3];
+    sampleRateData[0] = static_cast<uint8_t>(m_sampleRate & 0xFF);
+    sampleRateData[1] = static_cast<uint8_t>((m_sampleRate >> 8) & 0xFF);
+    sampleRateData[2] = static_cast<uint8_t>((m_sampleRate >> 16) & 0xFF);
     struct usbdevfs_ctrltransfer ctrl = {0};
     ctrl.bRequestType = 0x22; // Class, Endpoint, Host to Device
     ctrl.bRequest = 0x01;     // SET_CUR
     ctrl.wValue = 0x0100;     // CS_SAM_FREQ_CONTROL (Sampling Frequency Control)
-    ctrl.wIndex = 0x81;       // Endpoint 0x81
+    ctrl.wIndex = streamingEndpoint;       // Target audio endpoint
     ctrl.wLength = 3;         // 3 bytes for sample rate (24-bit)
     ctrl.timeout = 1000;
-    ctrl.data = (void*)&sampleRate;
+    ctrl.data = sampleRateData;
     
     int ctrl_result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
     if (ctrl_result >= 0) {
@@ -363,7 +790,7 @@ bool USBAudioInterface::enableAudioStreaming() {
     pitch_ctrl.bRequestType = 0x22; // Class, Endpoint, Host to Device
     pitch_ctrl.bRequest = 0x01;     // SET_CUR
     pitch_ctrl.wValue = 0x0200;     // PITCH_CONTROL
-    pitch_ctrl.wIndex = 0x81;       // Endpoint 0x81
+    pitch_ctrl.wIndex = streamingEndpoint;       // Target audio endpoint
     pitch_ctrl.wLength = 1;
     pitch_ctrl.timeout = 1000;
     pitch_ctrl.data = &pitchEnable;
@@ -379,23 +806,23 @@ bool USBAudioInterface::enableAudioStreaming() {
     
     // STEP 3: NOW activate the interface by setting alt 1
     // This starts the isochronous streaming
-    LOGI("Step 3: Setting Interface 3 to alt 1 (enable 84-channel streaming)");
+    LOGI("Step 3: Setting Interface %d to alt %d (enable streaming)", streamingInterface, streamingAltSetting);
     struct usbdevfs_setinterface setintf = {0};
-    setintf.interface = 3;
-    setintf.altsetting = 1;
+    setintf.interface = streamingInterface;
+    setintf.altsetting = streamingAltSetting;
     
     int result = ioctl(m_deviceFd, USBDEVFS_SETINTERFACE, &setintf);
     if (result == 0) {
-        LOGI("Successfully enabled Interface 3 alt 1 for 84-channel streaming");
+        LOGI("Successfully enabled Interface %d alt %d for streaming", streamingInterface, streamingAltSetting);
     } else {
-        LOGE("Failed to set Interface 3 alt 1: %s", strerror(errno));
+        LOGE("Failed to set Interface %d alt %d: %s", streamingInterface, streamingAltSetting, strerror(errno));
         return false;
     }
     
     usleep(50000); // 50ms for device to start streaming
     
     m_isStreaming = true;
-    LOGI("SPCMic streaming enabled - ready for isochronous transfers on endpoint 0x81");
+    LOGI("SPCMic streaming enabled - ready for isochronous transfers on endpoint 0x%02x", streamingEndpoint);
     return true;
 }
 
@@ -420,24 +847,14 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
         return 0;
     }
     
-    // USB Audio Class: SPCMic uses isochronous transfers for real-time audio
-    // Based on PAL logs: Interface 3, Altset 1, Endpoint 0x81 (SYNC) isochronous
-    // Android requires USBDEVFS_SUBMITURB for isochronous transfers
-    
-    // Use dynamically allocated URB queue for continuous streaming
-    // Try 2944 bytes per packet - halfway between 2816 (EOVERFLOW) and 3072 (EMSGSIZE)
-    // Kernel limit appears to be around 23-24KB total per URB
-    const int NUM_URBS = 32; // 32 URBs for deep queue
-    const int PACKETS_PER_URB = 8; // 8 packets per URB
-    // CRITICAL: For isochronous URBs, buffer_length must accommodate all packets
-    // 8 packets × 2944 bytes = 23,552 bytes
-    const int URB_BUFFER_SIZE = 23552; // ~23.5KB buffer per URB (8 × 2944)
-    
-    // Dynamically allocated m_urbs with proper size for iso_frame_desc array
-    
-    
-    
-    
+    // USB Audio Class: SPCMic uses isochronous transfers for real-time audio.
+    // URB geometry is derived from the endpoint descriptors at runtime.
+
+    if (!m_endpointInfoReady) {
+        LOGE("Endpoint information not ready - cannot read audio data yet");
+        return 0;
+    }
+
     
     m_callCount++;
     
@@ -451,109 +868,22 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
     if (m_isStreaming && !m_wasStreaming) {
         // Just started streaming - reset URB queue
         LOGI("Streaming started - resetting URB queue state");
-        
-        // Free existing m_urbs if they exist
-        if (m_urbsInitialized && m_urbs != nullptr) {
-            for (int i = 0; i < NUM_URBS; i++) {
-                if (m_urbs[i] != nullptr) {
-                    free(m_urbs[i]);
-                    m_urbs[i] = nullptr;
-                }
-                if (m_urbBuffers && m_urbBuffers[i] != nullptr) {
-                    free(m_urbBuffers[i]);
-                    m_urbBuffers[i] = nullptr;
-                }
-            }
-            free(m_urbs);
-            m_urbs = nullptr;
-            if (m_urbBuffers) {
-                free(m_urbBuffers);
-                m_urbBuffers = nullptr;
-            }
-        }
-        
+        releaseUrbResources();
         m_totalSubmitted = 0;
         m_nextSubmitIndex = 0;
-        m_urbsInitialized = false; // Force re-initialization
         m_frameNumberInitialized = false; // Reset frame number tracking
         m_wasStreaming = true;
+        if (!ensureUrbResources()) {
+            return 0;
+        }
     } else if (!m_isStreaming && m_wasStreaming) {
         // Just stopped streaming
         LOGI("Streaming stopped - will re-initialize on next start");
         m_wasStreaming = false;
     }
     
-    if (!m_urbsInitialized) {
-        // Allocate m_urbs with proper size for iso_frame_desc array
-        // CRITICAL: The usbdevfs_urb structure already includes iso_frame_desc[0],
-        // so for PACKETS_PER_URB=1, we just need sizeof(usbdevfs_urb)
-        // For more packets: sizeof(usbdevfs_urb) + (PACKETS_PER_URB - 1) * sizeof(usbdevfs_iso_packet_desc)
-        size_t urb_size = sizeof(struct usbdevfs_urb) + (PACKETS_PER_URB - 1) * sizeof(struct usbdevfs_iso_packet_desc);
-        
-        m_urbs = (struct usbdevfs_urb**)malloc(NUM_URBS * sizeof(struct usbdevfs_urb*));
-        if (!m_urbs) {
-            LOGE("Failed to allocate URB pointer array");
-            return 0;
-        }
-        
-        // Allocate URB buffers dynamically (not static to avoid memory corruption)
-        m_urbBuffers = (uint8_t**)malloc(NUM_URBS * sizeof(uint8_t*));
-        if (!m_urbBuffers) {
-            LOGE("Failed to allocate URB buffer pointer array");
-            free(m_urbs);
-            m_urbs = nullptr;
-            return 0;
-        }
-        
-        for (int i = 0; i < NUM_URBS; i++) {
-            m_urbBuffers[i] = (uint8_t*)malloc(16384);  // 16KB with safety margin
-            if (!m_urbBuffers[i]) {
-                LOGE("Failed to allocate URB buffer[%d]", i);
-                // Clean up previously allocated buffers
-                for (int j = 0; j < i; j++) {
-                    free(m_urbBuffers[j]);
-                }
-                free(m_urbBuffers);
-                free(m_urbs);
-                m_urbs = nullptr;
-                m_urbBuffers = nullptr;
-                return 0;
-            }
-        }
-        
-        for (int i = 0; i < NUM_URBS; i++) {
-            m_urbs[i] = (struct usbdevfs_urb*)malloc(urb_size);
-            if (!m_urbs[i]) {
-                LOGE("Failed to allocate URB[%d]", i);
-                return 0;
-            }
-            
-            memset(m_urbs[i], 0, urb_size);
-            m_urbs[i]->type = USBDEVFS_URB_TYPE_ISO;
-            m_urbs[i]->endpoint = m_audioInEndpoint;  // 0x81
-            m_urbs[i]->status = 0;
-            m_urbs[i]->flags = USBDEVFS_URB_ISO_ASAP;  // Back to ISO_ASAP since explicit frames not supported
-            m_urbs[i]->buffer = m_urbBuffers[i];
-            m_urbs[i]->buffer_length = URB_BUFFER_SIZE;
-            m_urbs[i]->actual_length = 0;
-            m_urbs[i]->start_frame = 0;  // Ignored when ISO_ASAP is set
-            m_urbs[i]->number_of_packets = PACKETS_PER_URB;
-            m_urbs[i]->error_count = 0;
-            m_urbs[i]->signr = 0;
-            m_urbs[i]->usercontext = (void*)(intptr_t)i;
-            
-            // Configure ISO packet descriptors - 8 packets at 2944 bytes
-            // Bisecting to find exact kernel limit: between 2816 (works) and 3072 (EMSGSIZE)
-            for (int pkt = 0; pkt < PACKETS_PER_URB; pkt++) {
-                m_urbs[i]->iso_frame_desc[pkt].length = 2944;  // 2944 bytes per packet
-                m_urbs[i]->iso_frame_desc[pkt].actual_length = 0;
-                m_urbs[i]->iso_frame_desc[pkt].status = 0;
-            }
-        }
-        
-        m_urbsInitialized = true;
-        LOGI("Initialized %d ISO m_urbs (dynamically allocated): buffer_length=%d, packets=%d, urb_size=%zu, packet_length=%u", 
-             NUM_URBS, URB_BUFFER_SIZE, PACKETS_PER_URB, urb_size, m_urbs[0]->iso_frame_desc[0].length);
+    if (!m_urbsInitialized && !ensureUrbResources()) {
+        return 0;
     }
     
     // First, submit initial m_urbs if we haven't submitted all of them yet
@@ -572,7 +902,7 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
         if (result >= 0) {
             m_totalSubmitted++;
             if (m_totalSubmitted <= NUM_URBS) {
-                LOGI("Submitted initial URB[%d] (%d/%d, %d packets)", m_nextSubmitIndex, m_totalSubmitted, NUM_URBS, PACKETS_PER_URB);
+                LOGI("Submitted initial URB[%d] (%d/%d, %zu packets)", m_nextSubmitIndex, m_totalSubmitted, NUM_URBS, m_packetsPerUrb);
             }
             
             m_nextSubmitIndex = (m_nextSubmitIndex + 1) % NUM_URBS;
@@ -659,7 +989,7 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
                 }
                 
                 // Reset URB state and re-initialize
-                m_urbsInitialized = false;
+                releaseUrbResources();
                 m_consecutiveSameUrbCount = 0;
                 m_lastReapedUrbAddress = nullptr;
                 m_stuckUrbDetected = false;
@@ -672,45 +1002,64 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
         }
         
         // Collect data from all packets in this URB and check for errors
-        int total_actual = 0;
+        size_t total_actual = 0;
         int error_count = 0;
-        for (int pkt = 0; pkt < PACKETS_PER_URB; pkt++) {
+        for (size_t pkt = 0; pkt < m_packetsPerUrb; ++pkt) {
             total_actual += completed_urb->iso_frame_desc[pkt].actual_length;
             if (completed_urb->iso_frame_desc[pkt].status != 0) {
                 error_count++;
                 // Log first few errors to understand what's happening
                 if (m_reapCount <= 50 || (m_reapCount % 1000 == 0 && error_count <= 2)) {
-                    LOGE("URB[%d] packet[%d] error: status=%d, actual=%d", 
-                         urb_index, pkt, completed_urb->iso_frame_desc[pkt].status, 
-                         completed_urb->iso_frame_desc[pkt].actual_length);
+                LOGE("URB[%d] packet[%zu] error: status=%d, actual=%u", 
+                    urb_index, pkt, completed_urb->iso_frame_desc[pkt].status, 
+                    completed_urb->iso_frame_desc[pkt].actual_length);
                 }
             }
         }
         
         // Copy data to output buffer if we have room and data exists
         if (total_actual > 0 && total_bytes_accumulated < bufferSize) {
-            size_t bytesToCopy = std::min((size_t)total_actual, bufferSize - total_bytes_accumulated);
-            memcpy(buffer + total_bytes_accumulated, completed_urb->buffer, bytesToCopy);
-            total_bytes_accumulated += bytesToCopy;
+            uint8_t* urbData = static_cast<uint8_t*>(completed_urb->buffer);
+            size_t packetOffset = 0;
+            for (size_t pkt = 0; pkt < m_packetsPerUrb && total_bytes_accumulated < bufferSize; ++pkt) {
+                unsigned int packetLength = completed_urb->iso_frame_desc[pkt].actual_length;
+                if (packetLength > 0) {
+                    if (packetOffset + packetLength > m_urbBufferSize) {
+                        LOGE("Packet length %u exceeds URB buffer bounds (offset=%zu, size=%zu)", packetLength, packetOffset, m_urbBufferSize);
+                        packetLength = std::min<unsigned int>(packetLength, static_cast<unsigned int>(m_urbBufferSize - packetOffset));
+                    }
+                    size_t bytesToCopy = std::min(static_cast<size_t>(packetLength), bufferSize - total_bytes_accumulated);
+                    memcpy(buffer + total_bytes_accumulated, urbData + packetOffset, bytesToCopy);
+                    total_bytes_accumulated += bytesToCopy;
+                }
+                packetOffset += m_isoPacketSize;
+            }
             
             if (m_reapCount <= 20 || m_reapCount % 100 == 0) {
-                int samplesPerChannel = total_actual / (84 * 3);
-                LOGI("ISO URB[%d] reaped (reap#%d, loop#%d): %d bytes (%d samples/ch), accumulated=%zu", 
+                size_t frameBytes = static_cast<size_t>(m_channelCount) * static_cast<size_t>(m_bytesPerSample);
+                size_t samplesPerChannel = frameBytes > 0 ? total_actual / frameBytes : 0;
+                LOGI("ISO URB[%d] reaped (reap#%d, loop#%d): %zu bytes (%zu samples/ch), accumulated=%zu", 
                      urb_index, m_reapCount, reap_loop, total_actual, samplesPerChannel, total_bytes_accumulated);
             }
         }
         
         // Re-submit this URB immediately for continuous streaming (kernel docs: "keep at least one URB queued")
-        for (int pkt = 0; pkt < PACKETS_PER_URB; pkt++) {
+        for (size_t pkt = 0; pkt < m_packetsPerUrb; ++pkt) {
             completed_urb->iso_frame_desc[pkt].actual_length = 0;
             completed_urb->iso_frame_desc[pkt].status = 0;
         }
+        completed_urb->buffer_length = m_urbBufferSize;
+        completed_urb->number_of_packets = static_cast<unsigned>(m_packetsPerUrb);
         
         int submit_result = ioctl(m_deviceFd, USBDEVFS_SUBMITURB, completed_urb);
         if (submit_result < 0) {
             LOGE("Failed to re-submit URB[%d]: %s (errno %d)", urb_index, strerror(errno), errno);
         } else if (m_reapCount <= 20) {
             LOGI("Re-submitted URB[%d] successfully", urb_index);
+        }
+
+        if (total_bytes_accumulated >= bufferSize) {
+            break;
         }
         
         // Continue loop to reap more URBs if available
@@ -726,47 +1075,30 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
     return total_bytes_accumulated;
 }
 
+size_t USBAudioInterface::getRecommendedBufferSize() const {
+    if (!m_endpointInfoReady || m_isoPacketSize == 0) {
+        return 0;
+    }
+
+    size_t packetsPerService = std::max<size_t>(1, m_packetsPerServiceInterval);
+    size_t targetPackets = packetsPerService * 8;
+    size_t maxPackets = std::max<size_t>(1, MAX_URB_BUFFER_BYTES / m_isoPacketSize);
+    size_t packetsPerUrb = std::max<size_t>(1, std::min(targetPackets, maxPackets));
+
+    return m_isoPacketSize * packetsPerUrb;
+}
+
 void USBAudioInterface::release() {
     LOGI("Releasing USB audio interface");
     
     stopStreaming();
     
-    // Clean up dynamically allocated URBs and buffers
-    if (m_urbs) {
-        const int NUM_URBS = 32;
-        for (int i = 0; i < NUM_URBS; i++) {
-            if (m_urbs[i]) {
-                if (m_deviceFd >= 0) {
-                    // Cancel any pending URBs before freeing
-                    ioctl(m_deviceFd, USBDEVFS_DISCARDURB, m_urbs[i]);
-                }
-                free(m_urbs[i]);
-                m_urbs[i] = nullptr;
-            }
-        }
-        free(m_urbs);
-        m_urbs = nullptr;
-    }
-    
-    if (m_urbBuffers) {
-        const int NUM_URBS = 32;
-        for (int i = 0; i < NUM_URBS; i++) {
-            if (m_urbBuffers[i]) {
-                free(m_urbBuffers[i]);
-                m_urbBuffers[i] = nullptr;
-            }
-        }
-        free(m_urbBuffers);
-        m_urbBuffers = nullptr;
-    }
-    
-    m_urbsInitialized = false;
+    releaseUrbResources();
     
     if (m_deviceFd >= 0) {
-        // Set SPCMic Interface 3 alt setting 0 to stop streaming
-        LOGI("Set interface 3 alt setting 0");
-        setInterface(3, 0);
-        
+        int streamingInterface = (m_streamInterfaceNumber >= 0) ? m_streamInterfaceNumber : 3;
+        LOGI("Set interface %d alt setting 0", streamingInterface);
+        setInterface(streamingInterface, 0);
         m_deviceFd = -1;
     }
     

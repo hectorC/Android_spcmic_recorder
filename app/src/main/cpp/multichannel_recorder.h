@@ -47,7 +47,7 @@ private:
     std::chrono::high_resolution_clock::time_point m_startTime;
     
     // Recording parameters
-    static const size_t BUFFER_SIZE = 8192;  // Bytes
+    static const size_t DEFAULT_BUFFER_SIZE = 8192;  // Bytes
     static const int CHANNEL_COUNT = 84;
     static const int SAMPLE_RATE = 48000;
     static const int BYTES_PER_SAMPLE = 3;  // 24-bit
@@ -65,4 +65,6 @@ private:
     // Utility functions
     int32_t extract24BitSample(const uint8_t* data);
     float normalizeLevel(int32_t sample);
+
+    size_t m_bufferSize;
 };
