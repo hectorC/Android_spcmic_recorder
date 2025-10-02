@@ -24,6 +24,8 @@ class USBAudioRecorder(
     private var isRecording = false
     private var recordingJob: Job? = null
     private var levelUpdateJob: Job? = null
+    private var targetSampleRate = DEFAULT_SAMPLE_RATE
+    private var isNativeInitialized = false
     
     private val ACTION_USB_PERMISSION = "com.spcmic.recorder.USB_PERMISSION"
     private val usbReceiver = object : BroadcastReceiver() {
@@ -45,11 +47,16 @@ class USBAudioRecorder(
         }
     }
     
-    // Audio configuration for 84 channels at 24-bit/48kHz
-    private val sampleRate = 48000
+    // Audio configuration defaults for 84 channels at 24-bit/48kHz
     private val channelCount = 84
     private val bitsPerSample = 24
-    
+
+    init {
+        viewModel.selectedSampleRate.value?.let {
+            targetSampleRate = it
+        }
+    }
+
     // Native library interface
     external fun stringFromJNI(): String
     external fun initializeNativeAudio(deviceFd: Int, sampleRate: Int, channelCount: Int): Boolean
@@ -59,8 +66,14 @@ class USBAudioRecorder(
     external fun stopMonitoringNative()
     external fun getChannelLevelsNative(): FloatArray?
     external fun releaseNativeAudio()
+    external fun getSupportedSampleRatesNative(): IntArray?
+    external fun supportsContinuousSampleRateNative(): Boolean
+    external fun getContinuousSampleRateRangeNative(): IntArray?
+    external fun getEffectiveSampleRateNative(): Int
+    external fun setTargetSampleRateNative(sampleRate: Int): Boolean
     
     companion object {
+        private const val DEFAULT_SAMPLE_RATE = 48000
         init {
             try {
                 System.loadLibrary("spcmic_recorder")
@@ -152,19 +165,24 @@ class USBAudioRecorder(
         // Get file descriptor for native USB communication
         val deviceFd = usbConnection!!.fileDescriptor
         android.util.Log.i("USBAudioRecorder", "USB device FD: $deviceFd")
-        
+
+        targetSampleRate = viewModel.selectedSampleRate.value ?: targetSampleRate
+
         // Initialize native audio interface
-        val success = initializeNativeAudio(deviceFd, sampleRate, channelCount)
+        val success = initializeNativeAudio(deviceFd, targetSampleRate, channelCount)
         if (success) {
+            isNativeInitialized = true
             android.util.Log.i("USBAudioRecorder", "Native audio initialized: ${stringFromJNI()}")
+            refreshSampleRateCapabilities(targetSampleRate)
             // TEMPORARILY DISABLED: Level monitoring disabled to focus on clean recording
             // startLevelMonitoring()
         } else {
+            isNativeInitialized = false
             android.util.Log.e("USBAudioRecorder", "Failed to initialize native audio")
             usbConnection?.close()
             usbConnection = null
         }
-        
+
         return success
     }
     
@@ -227,6 +245,60 @@ class USBAudioRecorder(
             delay(100) // Check every 100ms
         }
     }
+
+    private fun refreshSampleRateCapabilities(requestedSampleRate: Int) {
+        if (!isNativeInitialized) {
+            viewModel.updateSampleRateOptions(emptyList(), false, null, requestedSampleRate, requestedSampleRate)
+            return
+        }
+
+        val discreteRates = getSupportedSampleRatesNative()
+            ?.filter { it > 0 }
+            ?.distinct()
+            ?.sorted()
+            ?: emptyList()
+
+        val continuousSupported = supportsContinuousSampleRateNative()
+        val continuousArray = if (continuousSupported) getContinuousSampleRateRangeNative() else null
+        val continuousRange = continuousArray
+            ?.takeIf { it.size >= 2 }
+            ?.let { Pair(it[0], it[1]) }
+
+        val negotiated = getEffectiveSampleRateNative().takeIf { it > 0 } ?: requestedSampleRate
+
+        val aggregated = linkedSetOf<Int>()
+        aggregated.addAll(discreteRates)
+        aggregated.add(negotiated)
+        if (!continuousSupported || discreteRates.isEmpty()) {
+            aggregated.add(requestedSampleRate)
+        }
+        continuousRange?.let {
+            aggregated.add(it.first)
+            aggregated.add(it.second)
+        }
+
+        val ratesForUi = aggregated.filter { it > 0 }.sorted()
+
+        viewModel.updateSampleRateOptions(ratesForUi, continuousSupported, continuousRange, requestedSampleRate, negotiated)
+
+        val desiredSelection = viewModel.selectedSampleRate.value ?: requestedSampleRate
+        targetSampleRate = desiredSelection
+
+        if (desiredSelection != negotiated && desiredSelection != requestedSampleRate) {
+            val applied = setTargetSampleRateNative(desiredSelection)
+            if (applied) {
+                val refreshedNegotiated = getEffectiveSampleRateNative().takeIf { it > 0 } ?: desiredSelection
+                viewModel.setNegotiatedSampleRate(refreshedNegotiated)
+            } else {
+                android.util.Log.w("USBAudioRecorder", "Device rejected sample rate ${desiredSelection} Hz; reverting to ${negotiated} Hz")
+                viewModel.setSelectedSampleRate(negotiated)
+                viewModel.setNegotiatedSampleRate(negotiated)
+                targetSampleRate = negotiated
+            }
+        } else {
+            viewModel.setNegotiatedSampleRate(negotiated)
+        }
+    }
     
     private fun startLevelMonitoring() {
         // Start native monitoring to continuously read audio data for level meters
@@ -259,6 +331,27 @@ class USBAudioRecorder(
         
         android.util.Log.i("USBAudioRecorder", "Recording stopped")
     }
+
+    fun onSampleRateSelected(rate: Int): Boolean {
+        targetSampleRate = rate
+
+        if (!isNativeInitialized) {
+            viewModel.setSelectedSampleRate(rate)
+            return false
+        }
+
+        val applied = setTargetSampleRateNative(rate)
+        if (applied) {
+            viewModel.setSelectedSampleRate(rate)
+            val negotiated = getEffectiveSampleRateNative().takeIf { it > 0 } ?: rate
+            viewModel.setNegotiatedSampleRate(negotiated)
+            refreshSampleRateCapabilities(rate)
+            return true
+        }
+
+        android.util.Log.w("USBAudioRecorder", "Device rejected requested sample rate $rate Hz")
+        return false
+    }
     
     fun release() {
         android.util.Log.i("USBAudioRecorder", "Releasing USB audio recorder")
@@ -271,6 +364,7 @@ class USBAudioRecorder(
         
         // Release native resources
         releaseNativeAudio()
+        isNativeInitialized = false
         
         // Unregister USB receiver
         try {

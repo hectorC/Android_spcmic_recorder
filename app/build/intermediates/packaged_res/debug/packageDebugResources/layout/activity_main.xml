@@ -43,6 +43,48 @@
 
     </LinearLayout>
 
+    <!-- Sample Rate Selection -->
+    <LinearLayout
+        android:id="@+id/sampleRateContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:id="@+id/tvSampleRateLabel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Sample Rate"
+            android:textSize="16sp" />
+
+        <Spinner
+            android:id="@+id/spinnerSampleRate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:spinnerMode="dropdown" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvSampleRateStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Selected sample rate: 48,000 Hz"
+        android:textSize="14sp"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/tvNegotiatedSampleRate"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Device reported rate: 48,000 Hz"
+        android:textSize="14sp"
+        android:layout_marginBottom="16dp" />
+
     <!-- Recording Controls -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -90,27 +132,38 @@
             android:layout_marginBottom="8dp" />
 
         <TextView
+            android:id="@+id/tvChannelInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="• 84 Channels"
             android:textSize="14sp" />
 
         <TextView
+            android:id="@+id/tvSampleRateInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="• 48 kHz Sample Rate"
             android:textSize="14sp" />
 
         <TextView
+            android:id="@+id/tvBitDepthInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="• 24-bit Depth"
             android:textSize="14sp" />
 
         <TextView
+            android:id="@+id/tvFormatInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="• Uncompressed WAV Format"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tvSampleRateSupport"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Device supports discrete sample rates"
             android:textSize="14sp" />
 
     </LinearLayout>

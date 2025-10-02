@@ -190,7 +190,11 @@ USBAudioInterface::USBAudioInterface()
     , m_clockSelectorControls(0)
     , m_clockMultiplierId(-1)
     , m_clockMultiplierControls(0)
-    , m_clockSources() {
+    , m_clockSources()
+    , m_supportedSampleRates()
+    , m_supportsContinuousSampleRate(false)
+    , m_minContinuousSampleRate(0)
+    , m_maxContinuousSampleRate(0) {
 }
 
 USBAudioInterface::~USBAudioInterface() {
@@ -204,6 +208,10 @@ bool USBAudioInterface::initialize(int deviceFd, int sampleRate, int channelCoun
     m_deviceFd = deviceFd;
     m_sampleRate = sampleRate;
     m_channelCount = channelCount;
+    m_supportedSampleRates.clear();
+    m_supportsContinuousSampleRate = false;
+    m_minContinuousSampleRate = 0;
+    m_maxContinuousSampleRate = 0;
     
     if (m_deviceFd < 0) {
         LOGE("Invalid device file descriptor");
@@ -320,9 +328,19 @@ bool USBAudioInterface::configureSampleRate(int sampleRate) {
     bool attemptedClock = false;
     bool clockSuccess = false;
 
+    auto ensureSampleRateTracked = [&](uint32_t rate) {
+        if (rate == 0) {
+            return;
+        }
+        if (std::find(m_supportedSampleRates.begin(), m_supportedSampleRates.end(), rate) == m_supportedSampleRates.end()) {
+            m_supportedSampleRates.push_back(rate);
+        }
+    };
+
     auto updateEffectiveOnSuccess = [&](const char* source) {
         m_sampleRate = sampleRate;
         m_effectiveSampleRate = static_cast<double>(sampleRate);
+        ensureSampleRateTracked(static_cast<uint32_t>(sampleRate));
         LOGI("Sample rate %d Hz accepted via %s", sampleRate, source);
     };
 
@@ -635,8 +653,21 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
     m_clockMultiplierId = -1;
     m_clockMultiplierControls = 0;
     m_clockSources.clear();
+    m_supportedSampleRates.clear();
+    m_supportsContinuousSampleRate = false;
+    m_minContinuousSampleRate = 0;
+    m_maxContinuousSampleRate = 0;
 
     const int requestedSampleRate = m_sampleRate;
+
+    auto addSupportedRate = [&](uint32_t rate) {
+        if (rate == 0) {
+            return;
+        }
+        if (std::find(m_supportedSampleRates.begin(), m_supportedSampleRates.end(), rate) == m_supportedSampleRates.end()) {
+            m_supportedSampleRates.push_back(rate);
+        }
+    };
 
     struct EndpointSelection {
         bool valid = false;
@@ -873,10 +904,15 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
                                     current.matchedSampleRate = hasRequest ? static_cast<uint32_t>(requestedSampleRate) : 0;
                                     current.preferredSampleRate = hasRequest ? static_cast<uint32_t>(requestedSampleRate) : 0;
                                     m_clockFrequencyProgrammable = true;
+                                    m_supportsContinuousSampleRate = true;
                                     if (freqListBytes >= 6) {
                                         uint32_t minFreq = readFreq(freqPtr, freqListBytes);
                                         uint32_t maxFreq = readFreq(freqPtr + 3, freqListBytes - 3);
+                                        m_minContinuousSampleRate = minFreq;
+                                        m_maxContinuousSampleRate = maxFreq;
                                         LOGI("AudioStreaming continuous frequency range: %u-%u Hz", minFreq, maxFreq);
+                                        addSupportedRate(minFreq);
+                                        addSupportedRate(maxFreq);
                                     } else {
                                         LOGI("AudioStreaming continuous frequency range advertised (bytes=%zu)", freqListBytes);
                                     }
@@ -896,6 +932,7 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
                                             continue;
                                         }
                                         LOGI("AudioStreaming discrete frequency[%u]=%u Hz", idx, freq);
+                                        addSupportedRate(freq);
                                         if (idx == 0 && current.preferredSampleRate == 0) {
                                             current.preferredSampleRate = freq;
                                         }
@@ -1058,6 +1095,18 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
         } else {
             LOGI("Clock source detected: id=%d (details not found in parsed list)", m_clockSourceId);
         }
+    }
+
+    addSupportedRate(static_cast<uint32_t>(m_sampleRate));
+    if (best.hasDerivedSampleRate) {
+        addSupportedRate(static_cast<uint32_t>(std::lround(best.derivedSampleRate)));
+    }
+    if (best.matchedSampleRate > 0) {
+        addSupportedRate(best.matchedSampleRate);
+    }
+
+    if (!m_supportedSampleRates.empty()) {
+        std::sort(m_supportedSampleRates.begin(), m_supportedSampleRates.end());
     }
 
     updateEffectiveSampleRate();
@@ -1594,6 +1643,43 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
     
     // Return accumulated data from all reaped URBs
     return total_bytes_accumulated;
+}
+
+bool USBAudioInterface::setTargetSampleRate(int sampleRate) {
+    if (sampleRate <= 0) {
+        LOGE("Invalid sample rate requested: %d", sampleRate);
+        return false;
+    }
+
+    if (m_deviceFd < 0) {
+        LOGE("Cannot set sample rate; device handle is invalid");
+        return false;
+    }
+
+    if (m_isStreaming) {
+        LOGE("Cannot change sample rate while streaming is active");
+        return false;
+    }
+
+    if (m_sampleRate == sampleRate) {
+        LOGI("Sample rate %d Hz already selected", sampleRate);
+        return true;
+    }
+
+    int previousRate = m_sampleRate;
+    double previousEffective = m_effectiveSampleRate;
+
+    m_sampleRate = sampleRate;
+
+    if (!configureSampleRate(sampleRate)) {
+        LOGE("Device rejected sample rate %d Hz; restoring previous rate %d Hz", sampleRate, previousRate);
+        m_sampleRate = previousRate;
+        m_effectiveSampleRate = previousEffective;
+        return false;
+    }
+
+    LOGI("Sample rate updated to %d Hz", sampleRate);
+    return true;
 }
 
 size_t USBAudioInterface::getRecommendedBufferSize() const {

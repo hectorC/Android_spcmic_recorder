@@ -7,12 +7,16 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Bundle
 import android.util.Log
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import com.spcmic.recorder.databinding.ActivityMainBinding
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
     
@@ -20,6 +24,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var viewModel: MainViewModel
     private lateinit var usbManager: UsbManager
     private lateinit var audioRecorder: USBAudioRecorder
+    private lateinit var sampleRateAdapter: ArrayAdapter<String>
+    private var suppressSampleRateCallback = false
+    private var currentSupportedSampleRates: List<Int> = emptyList()
+    private var lastSuccessfulSampleRate = 48000
     
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -39,6 +47,7 @@ class MainActivity : AppCompatActivity() {
         
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
         usbManager = getSystemService(USB_SERVICE) as UsbManager
+    lastSuccessfulSampleRate = viewModel.selectedSampleRate.value ?: 48000
         
         setupUI()
         checkPermissions()
@@ -110,6 +119,51 @@ class MainActivity : AppCompatActivity() {
             btnRefreshDevices.setOnClickListener {
                 refreshUSBDevices()
             }
+
+            sampleRateAdapter = ArrayAdapter(
+                this@MainActivity,
+                android.R.layout.simple_spinner_item,
+                mutableListOf()
+            )
+            sampleRateAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            spinnerSampleRate.adapter = sampleRateAdapter
+            spinnerSampleRate.isEnabled = false
+
+            spinnerSampleRate.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
+                    if (suppressSampleRateCallback) {
+                        return
+                    }
+
+                    if (position < 0 || position >= currentSupportedSampleRates.size) {
+                        return
+                    }
+
+                    val selectedRate = currentSupportedSampleRates[position]
+                    val currentSelected = viewModel.selectedSampleRate.value
+                    if (currentSelected == selectedRate) {
+                        return
+                    }
+
+                    val recorderReady = ::audioRecorder.isInitialized && viewModel.isUSBDeviceConnected.value == true
+                    if (recorderReady) {
+                        val applied = audioRecorder.onSampleRateSelected(selectedRate)
+                        if (applied) {
+                            lastSuccessfulSampleRate = selectedRate
+                        } else {
+                            Toast.makeText(this@MainActivity, "Sample rate not accepted by device", Toast.LENGTH_SHORT).show()
+                            revertSampleRateSelection()
+                        }
+                    } else {
+                        viewModel.setSelectedSampleRate(selectedRate)
+                        lastSuccessfulSampleRate = selectedRate
+                    }
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) {
+                    // No-op
+                }
+            }
         }
     }
     
@@ -126,6 +180,7 @@ class MainActivity : AppCompatActivity() {
                 "No USB Audio Device Found"
             }
             binding.btnRecord.isEnabled = isConnected && !viewModel.isRecording.value!!
+            binding.spinnerSampleRate.isEnabled = isConnected && currentSupportedSampleRates.isNotEmpty()
         }
         
         viewModel.recordingTime.observe(this) { time ->
@@ -134,6 +189,42 @@ class MainActivity : AppCompatActivity() {
         
         viewModel.channelLevels.observe(this) { levels ->
             binding.levelMeterView.updateLevels(levels)
+        }
+
+        viewModel.supportedSampleRates.observe(this) { rates ->
+            currentSupportedSampleRates = rates
+            if (::sampleRateAdapter.isInitialized) {
+                val formatted = rates.map { formatSampleRate(it) }
+                sampleRateAdapter.clear()
+                if (formatted.isNotEmpty()) {
+                    sampleRateAdapter.addAll(formatted)
+                }
+                sampleRateAdapter.notifyDataSetChanged()
+            }
+            binding.spinnerSampleRate.isEnabled = viewModel.isUSBDeviceConnected.value == true && rates.isNotEmpty()
+            updateSampleRateSpinnerSelection()
+            updateSampleRateSupportText()
+        }
+
+        viewModel.selectedSampleRate.observe(this) { rate ->
+            binding.tvSampleRateStatus.text = "Selected sample rate: ${formatSampleRate(rate)}"
+            binding.tvSampleRateInfo.text = "• Sample Rate: ${formatSampleRate(rate)}"
+            updateSampleRateSpinnerSelection()
+        }
+
+        viewModel.negotiatedSampleRate.observe(this) { rate ->
+            binding.tvNegotiatedSampleRate.text = "Device reported rate: ${formatSampleRate(rate)}"
+            if (rate > 0) {
+                lastSuccessfulSampleRate = rate
+            }
+        }
+
+        viewModel.supportsContinuousSampleRate.observe(this) {
+            updateSampleRateSupportText()
+        }
+
+        viewModel.continuousSampleRateRange.observe(this) {
+            updateSampleRateSupportText()
         }
     }
     
@@ -219,6 +310,51 @@ class MainActivity : AppCompatActivity() {
     private fun stopRecording() {
         audioRecorder.stopRecording()
         viewModel.stopRecording()
+    }
+
+    private fun updateSampleRateSpinnerSelection() {
+        if (!::sampleRateAdapter.isInitialized) {
+            return
+        }
+
+        val selectedRate = viewModel.selectedSampleRate.value ?: return
+        val index = currentSupportedSampleRates.indexOf(selectedRate)
+
+        if (index >= 0 && binding.spinnerSampleRate.selectedItemPosition != index) {
+            suppressSampleRateCallback = true
+            binding.spinnerSampleRate.setSelection(index, false)
+            binding.spinnerSampleRate.post { suppressSampleRateCallback = false }
+        }
+    }
+
+    private fun revertSampleRateSelection() {
+        viewModel.setSelectedSampleRate(lastSuccessfulSampleRate)
+        updateSampleRateSpinnerSelection()
+    }
+
+    private fun updateSampleRateSupportText() {
+        val supportsContinuous = viewModel.supportsContinuousSampleRate.value == true
+        val text = if (supportsContinuous) {
+            val range = viewModel.continuousSampleRateRange.value
+            if (range != null && range.first > 0 && range.second > 0) {
+                "Device supports continuous range ${formatSampleRate(range.first)} – ${formatSampleRate(range.second)}"
+            } else {
+                "Device supports continuous sample rate selection"
+            }
+        } else {
+            if (currentSupportedSampleRates.isEmpty()) {
+                "Device sample rate capabilities unknown"
+            } else {
+                "Device supports discrete sample rates"
+            }
+        }
+        binding.tvSampleRateSupport.text = text
+    }
+
+    private fun formatSampleRate(rate: Int?): String {
+        val value = rate ?: return "Unknown"
+        if (value <= 0) return "Unknown"
+        return String.format(Locale.getDefault(), "%,d Hz", value)
     }
     
     private fun formatTime(seconds: Long): String {

@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <string>
+#include <vector>
 #include <android/log.h>
 #include "usb_audio_interface.h"
 #include "multichannel_recorder.h"
@@ -182,4 +183,90 @@ Java_com_spcmic_recorder_USBAudioRecorder_releaseNativeAudio(
     }
     
     LOGI("Native USB Audio Class resources released");
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_getSupportedSampleRatesNative(
+        JNIEnv* env,
+        jobject thiz) {
+
+    if (!g_usbAudioInterface) {
+        return env->NewIntArray(0);
+    }
+
+    const std::vector<uint32_t>& rates = g_usbAudioInterface->getSupportedSampleRates();
+    jintArray result = env->NewIntArray(static_cast<jsize>(rates.size()));
+    if (!result) {
+        return nullptr;
+    }
+
+    if (!rates.empty()) {
+        std::vector<jint> temp;
+        temp.reserve(rates.size());
+        for (uint32_t rate : rates) {
+            temp.push_back(static_cast<jint>(rate));
+        }
+        env->SetIntArrayRegion(result, 0, static_cast<jsize>(temp.size()), temp.data());
+    }
+
+    return result;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_supportsContinuousSampleRateNative(
+        JNIEnv* env,
+        jobject thiz) {
+
+    if (!g_usbAudioInterface) {
+        return JNI_FALSE;
+    }
+
+    return g_usbAudioInterface->supportsContinuousSampleRate() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_getContinuousSampleRateRangeNative(
+        JNIEnv* env,
+        jobject thiz) {
+
+    if (!g_usbAudioInterface || !g_usbAudioInterface->supportsContinuousSampleRate()) {
+        return env->NewIntArray(0);
+    }
+
+    jintArray result = env->NewIntArray(2);
+    if (!result) {
+        return nullptr;
+    }
+
+    jint range[2];
+    range[0] = static_cast<jint>(g_usbAudioInterface->getContinuousSampleRateMin());
+    range[1] = static_cast<jint>(g_usbAudioInterface->getContinuousSampleRateMax());
+    env->SetIntArrayRegion(result, 0, 2, range);
+    return result;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_getEffectiveSampleRateNative(
+        JNIEnv* env,
+        jobject thiz) {
+
+    if (!g_usbAudioInterface) {
+        return 0;
+    }
+
+    return static_cast<jint>(g_usbAudioInterface->getEffectiveSampleRateRounded());
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_setTargetSampleRateNative(
+        JNIEnv* env,
+        jobject thiz,
+        jint sampleRate) {
+
+    if (!g_usbAudioInterface) {
+        return JNI_FALSE;
+    }
+
+    bool result = g_usbAudioInterface->setTargetSampleRate(static_cast<int>(sampleRate));
+    return result ? JNI_TRUE : JNI_FALSE;
 }

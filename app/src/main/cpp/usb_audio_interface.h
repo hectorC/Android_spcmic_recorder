@@ -22,6 +22,11 @@ public:
     size_t getIsoPacketSize() const { return m_isoPacketSize; }
     double getEffectiveSampleRate() const { return m_effectiveSampleRate; }
     int getEffectiveSampleRateRounded() const;
+    bool setTargetSampleRate(int sampleRate);
+    const std::vector<uint32_t>& getSupportedSampleRates() const { return m_supportedSampleRates; }
+    bool supportsContinuousSampleRate() const { return m_supportsContinuousSampleRate; }
+    uint32_t getContinuousSampleRateMin() const { return m_minContinuousSampleRate; }
+    uint32_t getContinuousSampleRateMax() const { return m_maxContinuousSampleRate; }
     
     // Get device capabilities
     int getSampleRate() const { return m_sampleRate; }
@@ -120,6 +125,10 @@ private:
         bool programmable;
     };
     std::vector<ClockSourceDetails> m_clockSources;
+    std::vector<uint32_t> m_supportedSampleRates;
+    bool m_supportsContinuousSampleRate;
+    uint32_t m_minContinuousSampleRate;
+    uint32_t m_maxContinuousSampleRate;
 
     static constexpr size_t MAX_URB_BUFFER_BYTES = 64 * 1024;
 };

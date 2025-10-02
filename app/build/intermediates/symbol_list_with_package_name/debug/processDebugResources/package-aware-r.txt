@@ -3451,6 +3451,7 @@ id right_icon
 id right_side
 id rounded
 id row_index_key
+id sampleRateContainer
 id save_non_transition_alpha
 id save_overlay_view
 id sawtooth
@@ -3491,6 +3492,7 @@ id snapMargins
 id south
 id spacer
 id special_effects_controller_view_tag
+id spinnerSampleRate
 id spline
 id split_action_bar
 id spread
@@ -3558,8 +3560,16 @@ id transition_position
 id transition_scene_layoutid_cache
 id transition_transform
 id triangle
+id tvBitDepthInfo
+id tvChannelInfo
 id tvConnectionStatus
+id tvFormatInfo
+id tvNegotiatedSampleRate
 id tvRecordingTime
+id tvSampleRateInfo
+id tvSampleRateLabel
+id tvSampleRateStatus
+id tvSampleRateSupport
 id unchecked
 id uniform
 id unlabeled
