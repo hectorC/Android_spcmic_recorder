@@ -14,6 +14,7 @@ MultichannelRecorder::MultichannelRecorder(USBAudioInterface* audioInterface)
     , m_isRecording(false)
     , m_isMonitoring(false)
     , m_totalSamples(0)
+    , m_sampleRate(audioInterface ? audioInterface->getEffectiveSampleRateRounded() : 48000)
     , m_bufferSize(DEFAULT_BUFFER_SIZE) {
     
     // Initialize channel levels array
@@ -45,27 +46,30 @@ bool MultichannelRecorder::startRecording(const std::string& outputPath) {
         return false;
     }
     
-    LOGI("Starting recording to: %s", outputPath.c_str());
+    // Start USB audio streaming first so the device can negotiate its actual sample rate
+    if (!m_audioInterface->startStreaming()) {
+        LOGE("Failed to start USB audio streaming");
+        return false;
+    }
+
+    int effectiveRate = m_audioInterface->getEffectiveSampleRateRounded();
+    if (effectiveRate > 0) {
+        m_sampleRate = effectiveRate;
+    }
+
+    LOGI("Starting recording to: %s (sampleRate=%d Hz)", outputPath.c_str(), m_sampleRate);
     
-    // Create WAV writer
+    // Create WAV writer using the negotiated sample rate
     if (m_wavWriter) {
         delete m_wavWriter;
     }
     
     m_wavWriter = new WAVWriter();
-    if (!m_wavWriter->open(outputPath, SAMPLE_RATE, CHANNEL_COUNT, BYTES_PER_SAMPLE * 8)) {
+    if (!m_wavWriter->open(outputPath, m_sampleRate, CHANNEL_COUNT, BYTES_PER_SAMPLE * 8)) {
         LOGE("Failed to create WAV file: %s", outputPath.c_str());
         delete m_wavWriter;
         m_wavWriter = nullptr;
-        return false;
-    }
-    
-    // Start USB audio streaming
-    if (!m_audioInterface->startStreaming()) {
-        LOGE("Failed to start USB audio streaming");
-        m_wavWriter->close();
-        delete m_wavWriter;
-        m_wavWriter = nullptr;
+        m_audioInterface->stopStreaming();
         return false;
     }
 
@@ -309,9 +313,9 @@ std::vector<float> MultichannelRecorder::getChannelLevels() {
 }
 
 double MultichannelRecorder::getRecordingDuration() const {
-    if (m_totalSamples == 0) {
+    if (m_totalSamples == 0 || m_sampleRate <= 0) {
         return 0.0;
     }
     
-    return static_cast<double>(m_totalSamples) / SAMPLE_RATE;
+    return static_cast<double>(m_totalSamples) / static_cast<double>(m_sampleRate);
 }

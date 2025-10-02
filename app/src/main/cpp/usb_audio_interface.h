@@ -20,6 +20,8 @@ public:
     size_t getRecommendedBufferSize() const;
     size_t getUrbBufferSize() const { return m_urbBufferSize; }
     size_t getIsoPacketSize() const { return m_isoPacketSize; }
+    double getEffectiveSampleRate() const { return m_effectiveSampleRate; }
+    int getEffectiveSampleRateRounded() const;
     
     // Get device capabilities
     int getSampleRate() const { return m_sampleRate; }
@@ -85,6 +87,10 @@ private:
     bool parseStreamingEndpoint(const std::vector<uint8_t>& descriptor);
     void releaseUrbResources();
     bool ensureUrbResources();
+    void updateEffectiveSampleRate();
+    bool readSampleRateFromClock(uint32_t& outRate);
+    bool readSampleRateFromEndpoint(uint32_t& outRate);
+    bool queryCurrentSampleRate(uint32_t& outRate, const char** sourceName);
 
     // Streaming endpoint details
     int m_streamInterfaceNumber;
@@ -97,6 +103,23 @@ private:
     bool m_endpointInfoReady;
     bool m_isHighSpeed;
     bool m_isSuperSpeed;
+    double m_effectiveSampleRate;
+    int m_controlInterfaceNumber;
+    int m_clockSourceId;
+    bool m_clockFrequencyProgrammable;
+    int m_streamClockEntityId;
+    int m_clockSelectorId;
+    std::vector<uint8_t> m_clockSelectorInputs;
+    uint8_t m_clockSelectorControls;
+    int m_clockMultiplierId;
+    uint8_t m_clockMultiplierControls;
+    struct ClockSourceDetails {
+        uint8_t id;
+        uint8_t attributes;
+        uint8_t controls;
+        bool programmable;
+    };
+    std::vector<ClockSourceDetails> m_clockSources;
 
     static constexpr size_t MAX_URB_BUFFER_BYTES = 64 * 1024;
 };

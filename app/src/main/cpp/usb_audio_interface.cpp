@@ -12,6 +12,9 @@
 #include <chrono>
 #include <algorithm>
 #include <vector>
+#include <limits>
+#include <sstream>
+#include <string>
 
 #define LOG_TAG "USBAudioInterface"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -30,6 +33,9 @@
 #endif
 #ifndef USB_DT_ENDPOINT
 #define USB_DT_ENDPOINT 0x05
+#endif
+#ifndef USB_DT_CS_INTERFACE
+#define USB_DT_CS_INTERFACE 0x24
 #endif
 #ifndef USB_DT_SS_ENDPOINT_COMP
 #define USB_DT_SS_ENDPOINT_COMP 0x30
@@ -55,6 +61,21 @@
 #ifndef USB_ENDPOINT_XFER_ISOC
 #define USB_ENDPOINT_XFER_ISOC 0x01
 #endif
+#ifndef USB_CLASS_AUDIO
+#define USB_CLASS_AUDIO 0x01
+#endif
+#ifndef USB_SUBCLASS_AUDIOCONTROL
+#define USB_SUBCLASS_AUDIOCONTROL 0x01
+#endif
+#ifndef USB_SUBCLASS_AUDIOSTREAMING
+#define USB_SUBCLASS_AUDIOSTREAMING 0x02
+#endif
+
+constexpr uint8_t UAC_CS_SUBTYPE_AS_GENERAL = 0x01;
+constexpr uint8_t UAC_CS_SUBTYPE_FORMAT_TYPE = 0x02;
+constexpr uint8_t UAC_CS_SUBTYPE_CLOCK_SOURCE = 0x0A;
+constexpr uint8_t UAC_CS_SUBTYPE_CLOCK_SELECTOR = 0x0B;
+constexpr uint8_t UAC_CS_SUBTYPE_CLOCK_MULTIPLIER = 0x0C;
 
 namespace {
 
@@ -110,6 +131,14 @@ inline uint16_t read_le16(const void* ptr) {
     return static_cast<uint16_t>(bytes[0]) | static_cast<uint16_t>(bytes[1] << 8);
 }
 
+inline uint32_t read_le32(const void* ptr) {
+    const uint8_t* bytes = static_cast<const uint8_t*>(ptr);
+    return static_cast<uint32_t>(bytes[0]) |
+           (static_cast<uint32_t>(bytes[1]) << 8) |
+           (static_cast<uint32_t>(bytes[2]) << 16) |
+           (static_cast<uint32_t>(bytes[3]) << 24);
+}
+
 } // namespace
 
 USBAudioInterface::USBAudioInterface() 
@@ -150,7 +179,18 @@ USBAudioInterface::USBAudioInterface()
     , m_packetsPerServiceInterval(0)
     , m_endpointInfoReady(false)
     , m_isHighSpeed(false)
-    , m_isSuperSpeed(false) {
+    , m_isSuperSpeed(false)
+    , m_effectiveSampleRate(48000.0)
+    , m_controlInterfaceNumber(-1)
+    , m_clockSourceId(-1)
+    , m_clockFrequencyProgrammable(false)
+    , m_streamClockEntityId(-1)
+    , m_clockSelectorId(-1)
+    , m_clockSelectorInputs()
+    , m_clockSelectorControls(0)
+    , m_clockMultiplierId(-1)
+    , m_clockMultiplierControls(0)
+    , m_clockSources() {
 }
 
 USBAudioInterface::~USBAudioInterface() {
@@ -176,6 +216,12 @@ bool USBAudioInterface::initialize(int deviceFd, int sampleRate, int channelCoun
         return false;
     }
     
+    int derivedRate = getEffectiveSampleRateRounded();
+    if (derivedRate > 0 && std::abs(derivedRate - m_sampleRate) > 1) {
+        LOGI("Descriptor-derived effective rate is approximately %d Hz for selected endpoint (requested %d Hz)",
+             derivedRate, m_sampleRate);
+    }
+
     // Configure the USB Audio Class device
     if (!configureUACDevice()) {
         LOGE("Failed to configure UAC device");
@@ -264,56 +310,141 @@ bool USBAudioInterface::setInterface(int interfaceNum, int altSetting) {
 
 bool USBAudioInterface::configureSampleRate(int sampleRate) {
     LOGI("Configuring sample rate to %d Hz", sampleRate);
-    
-    // USB Audio Class sample rate configuration
-    // Send SET_CUR request to the Clock Source or Sampling Frequency Control
-    
+
     uint8_t sampleRateData[4];
     sampleRateData[0] = sampleRate & 0xFF;
     sampleRateData[1] = (sampleRate >> 8) & 0xFF;
     sampleRateData[2] = (sampleRate >> 16) & 0xFF;
     sampleRateData[3] = (sampleRate >> 24) & 0xFF;
-    
-    // For UAC 1.0: Send to endpoint control
-    // For UAC 2.0: Send to Clock Source Unit
-    
-    // Try UAC 1.0 method first (endpoint control)
-    struct usbdevfs_ctrltransfer ctrl;
-    ctrl.bRequestType = 0x22; // Class, Endpoint, Host to Device
-    ctrl.bRequest = UAC_SET_CUR;
-    ctrl.wValue = (UAC_SAMPLING_FREQ_CONTROL << 8) | 0x00;
-    ctrl.wIndex = m_audioInEndpoint; // Target the audio input endpoint
-    ctrl.wLength = 3; // 24-bit sample rate
-    ctrl.timeout = 1000;
-    ctrl.data = sampleRateData;
-    
-    int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
-    if (result >= 0) {
-        LOGI("Sample rate configured via UAC 1.0 method");
+
+    bool attemptedClock = false;
+    bool clockSuccess = false;
+
+    auto updateEffectiveOnSuccess = [&](const char* source) {
+        m_sampleRate = sampleRate;
+        m_effectiveSampleRate = static_cast<double>(sampleRate);
+        LOGI("Sample rate %d Hz accepted via %s", sampleRate, source);
+    };
+
+    if (m_deviceFd >= 0 && m_clockSourceId >= 0) {
+        struct ClockSetAttempt {
+            uint16_t wIndex;
+            uint16_t wLength;
+            const char* description;
+        };
+
+        std::vector<ClockSetAttempt> attempts;
+        attempts.reserve(8);
+
+        auto makeIndex = [&](int interfaceNumber) -> uint16_t {
+            uint16_t high = static_cast<uint16_t>(m_clockSourceId) << 8;
+            uint16_t low = (interfaceNumber >= 0) ? static_cast<uint16_t>(interfaceNumber & 0xFF)
+                                                  : static_cast<uint16_t>(0x00);
+            return static_cast<uint16_t>(high | low);
+        };
+
+        auto addAttempt = [&](int interfaceNumber, uint16_t length, const char* description) {
+            ClockSetAttempt attempt{makeIndex(interfaceNumber), length, description};
+            auto duplicate = std::find_if(attempts.begin(), attempts.end(), [&](const ClockSetAttempt& entry) {
+                return entry.wIndex == attempt.wIndex && entry.wLength == attempt.wLength;
+            });
+            if (duplicate == attempts.end()) {
+                attempts.push_back(attempt);
+            }
+        };
+
+        if (m_controlInterfaceNumber >= 0) {
+            addAttempt(m_controlInterfaceNumber, 4, "clock source 32-bit (audio control interface)");
+            addAttempt(m_controlInterfaceNumber, 3, "clock source 24-bit (audio control interface)");
+        }
+
+        if (m_streamInterfaceNumber >= 0) {
+            addAttempt(m_streamInterfaceNumber, 4, "clock source 32-bit (audio streaming interface)");
+            addAttempt(m_streamInterfaceNumber, 3, "clock source 24-bit (audio streaming interface)");
+        }
+
+        addAttempt(-1, 4, "clock source 32-bit (entity only)");
+        addAttempt(-1, 3, "clock source 24-bit (entity only)");
+
+        for (const auto& attempt : attempts) {
+            if (!m_clockFrequencyProgrammable && attempt.wLength == 4) {
+                continue; // Skip 32-bit attempts if descriptor says not programmable
+            }
+            attemptedClock = true;
+            LOGI("Attempting %s: wIndex=0x%04x wLength=%u", attempt.description, attempt.wIndex, attempt.wLength);
+
+            struct usbdevfs_ctrltransfer ctrl = {};
+            ctrl.bRequestType = 0x21; // Class, Interface, Host to Device
+            ctrl.bRequest = UAC_SET_CUR;
+            ctrl.wValue = (UAC_SAMPLING_FREQ_CONTROL << 8) | 0x00;
+            ctrl.wIndex = attempt.wIndex;
+            ctrl.wLength = attempt.wLength;
+            ctrl.timeout = 1000;
+            ctrl.data = sampleRateData;
+
+            int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
+            if (result >= 0) {
+                LOGI("Clock source SET_CUR succeeded using %s", attempt.description);
+                updateEffectiveOnSuccess("clock source");
+                clockSuccess = true;
+                break;
+            }
+
+            int err = errno;
+            LOGE("Clock source attempt failed (%s): result=%d errno=%d %s",
+                 attempt.description, result, err, strerror(err));
+
+            if (err == EBUSY) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+    } else if (m_clockSourceId >= 0) {
+        LOGI("Clock source present (id=%d) but descriptor reports programmable=%d or interface unknown",
+             m_clockSourceId, m_clockFrequencyProgrammable ? 1 : 0);
+    }
+
+    bool endpointSuccess = false;
+
+    if (!clockSuccess) {
+        struct usbdevfs_ctrltransfer ctrl = {};
+        ctrl.bRequestType = 0x22; // Class, Endpoint, Host to Device
+        ctrl.bRequest = UAC_SET_CUR;
+        ctrl.wValue = (UAC_SAMPLING_FREQ_CONTROL << 8) | 0x00;
+        ctrl.wIndex = m_audioInEndpoint; // Target the audio input endpoint
+        ctrl.wLength = 3; // 24-bit sample rate
+        ctrl.timeout = 1000;
+        ctrl.data = sampleRateData;
+
+        LOGI("Attempting endpoint SET_CUR fallback: endpoint=0x%02x targetRate=%d Hz", m_audioInEndpoint, sampleRate);
+        int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
+        if (result >= 0) {
+            LOGI("Sample rate configured via endpoint control (UAC 1.0 fallback)");
+            updateEffectiveOnSuccess("endpoint fallback");
+            endpointSuccess = true;
+        } else {
+            int err = errno;
+            if (attemptedClock) {
+                LOGE("Endpoint fallback also failed after clock source attempts (result=%d errno=%d %s)",
+                     result, err, strerror(err));
+            } else {
+                LOGE("Failed to configure sample rate via endpoint control (result=%d errno=%d %s)",
+                     result, err, strerror(err));
+            }
+
+            LOGI("Assuming sample rate is set by alternate setting selection");
+        }
+    }
+
+    uint32_t reportedRate = 0;
+    const char* reportedSource = nullptr;
+    if (queryCurrentSampleRate(reportedRate, &reportedSource)) {
+        LOGI("Device-reported current sample rate via %s: %u Hz",
+             reportedSource ? reportedSource : "unknown", reportedRate);
+        m_effectiveSampleRate = static_cast<double>(reportedRate);
         return true;
     }
-    
-    LOGE("Failed to configure sample rate via endpoint control: %s", strerror(errno));
-    
-    // Try UAC 2.0 method (Clock Source Unit)
-    ctrl.bRequestType = 0x21; // Class, Interface, Host to Device
-    ctrl.wValue = (UAC_SAMPLING_FREQ_CONTROL << 8) | 0x00;
-    int streamingInterface = (m_streamInterfaceNumber >= 0) ? m_streamInterfaceNumber : 3;
-    ctrl.wIndex = static_cast<uint16_t>((streamingInterface << 8) | 0x00); // Clock Source ID assumed 0
-    ctrl.wLength = 4; // 32-bit sample rate for UAC 2.0
-    
-    result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
-    if (result >= 0) {
-        LOGI("Sample rate configured via UAC 2.0 method");
-        return true;
-    }
-    
-    LOGE("Failed to configure sample rate via clock source: %s", strerror(errno));
-    
-    // Some devices might work without explicit sample rate setting
-    // if the alternate setting already defines the correct rate
-    LOGI("Assuming sample rate is set by alternate setting selection");
-    return true;
+
+    return clockSuccess || endpointSuccess;
 }
 
 bool USBAudioInterface::configureChannels(int channels) {
@@ -324,6 +455,112 @@ bool USBAudioInterface::configureChannels(int channels) {
     // the desired number of channels
     
     return true;
+}
+
+bool USBAudioInterface::readSampleRateFromClock(uint32_t& outRate) {
+    if (m_deviceFd < 0 || m_clockSourceId < 0) {
+        return false;
+    }
+
+    uint8_t buffer[4] = {0};
+    struct usbdevfs_ctrltransfer ctrl = {};
+    ctrl.bRequestType = 0xA1; // Class, Interface, Device to Host
+    ctrl.bRequest = UAC_GET_CUR;
+    ctrl.wValue = (UAC_SAMPLING_FREQ_CONTROL << 8) | 0x00;
+    ctrl.timeout = 1000;
+    ctrl.data = buffer;
+
+    std::vector<int> interfaceCandidates;
+    if (m_controlInterfaceNumber >= 0) {
+        interfaceCandidates.push_back(m_controlInterfaceNumber);
+    }
+    if (m_streamInterfaceNumber >= 0 &&
+        (m_controlInterfaceNumber < 0 || m_streamInterfaceNumber != m_controlInterfaceNumber)) {
+        interfaceCandidates.push_back(m_streamInterfaceNumber);
+    }
+    if (interfaceCandidates.empty()) {
+        interfaceCandidates.push_back(-1);
+    }
+
+    const uint16_t lengths[] = {4, 3};
+    for (int interfaceNumber : interfaceCandidates) {
+        ctrl.wIndex = static_cast<uint16_t>((m_clockSourceId << 8) |
+                                            ((interfaceNumber >= 0) ? (interfaceNumber & 0xFF) : 0x00));
+
+        for (uint16_t length : lengths) {
+            ctrl.wLength = length;
+            int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
+            if (result >= 0) {
+                if (length == 4) {
+                    outRate = read_le32(buffer);
+                } else {
+                    outRate = static_cast<uint32_t>(buffer[0]) |
+                              (static_cast<uint32_t>(buffer[1]) << 8) |
+                              (static_cast<uint32_t>(buffer[2]) << 16);
+                }
+                LOGI("Clock source GET_CUR returned %u Hz (entity=%d interface=%d length=%u)",
+                     outRate, m_clockSourceId, interfaceNumber, length);
+                return true;
+            }
+
+            int err = errno;
+            LOGI("Clock source GET_CUR attempt failed (interface=%d length=%u): errno=%d %s",
+                 interfaceNumber, length, err, strerror(err));
+        }
+    }
+
+    return false;
+}
+
+bool USBAudioInterface::readSampleRateFromEndpoint(uint32_t& outRate) {
+    if (m_deviceFd < 0 || m_audioInEndpoint < 0) {
+        return false;
+    }
+
+    uint8_t buffer[3] = {0};
+    struct usbdevfs_ctrltransfer ctrl = {};
+    ctrl.bRequestType = 0xA2; // Class, Endpoint, Device to Host
+    ctrl.bRequest = UAC_GET_CUR;
+    ctrl.wValue = (UAC_SAMPLING_FREQ_CONTROL << 8) | 0x00;
+    ctrl.wIndex = static_cast<uint16_t>(m_audioInEndpoint & 0xFF);
+    ctrl.wLength = sizeof(buffer);
+    ctrl.timeout = 1000;
+    ctrl.data = buffer;
+
+    int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
+    if (result >= 0) {
+        outRate = static_cast<uint32_t>(buffer[0]) |
+                  (static_cast<uint32_t>(buffer[1]) << 8) |
+                  (static_cast<uint32_t>(buffer[2]) << 16);
+        LOGI("Endpoint GET_CUR returned %u Hz (endpoint=0x%02x)", outRate, m_audioInEndpoint);
+        return true;
+    }
+
+    int err = errno;
+    LOGI("Endpoint GET_CUR failed: errno=%d %s", err, strerror(err));
+    return false;
+}
+
+bool USBAudioInterface::queryCurrentSampleRate(uint32_t& outRate, const char** sourceName) {
+    if (sourceName) {
+        *sourceName = nullptr;
+    }
+
+    if (readSampleRateFromClock(outRate)) {
+        if (sourceName) {
+            *sourceName = "clock source";
+        }
+        return true;
+    }
+
+    if (readSampleRateFromEndpoint(outRate)) {
+        if (sourceName) {
+            *sourceName = "endpoint";
+        }
+        return true;
+    }
+
+    return false;
 }
 
 bool USBAudioInterface::fetchConfigurationDescriptor(std::vector<uint8_t>& descriptor) {
@@ -388,6 +625,18 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
     m_endpointInfoReady = false;
     m_isHighSpeed = false;
     m_isSuperSpeed = false;
+    m_controlInterfaceNumber = -1;
+    m_clockSourceId = -1;
+    m_clockFrequencyProgrammable = false;
+    m_streamClockEntityId = -1;
+    m_clockSelectorId = -1;
+    m_clockSelectorInputs.clear();
+    m_clockSelectorControls = 0;
+    m_clockMultiplierId = -1;
+    m_clockMultiplierControls = 0;
+    m_clockSources.clear();
+
+    const int requestedSampleRate = m_sampleRate;
 
     struct EndpointSelection {
         bool valid = false;
@@ -398,17 +647,92 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
         size_t bytesPerInterval = 0;
         size_t packetsPerServiceInterval = 1;
         bool isSuperSpeed = false;
+        bool isHighSpeed = false;
+        bool supportsRequestedRate = false;
+        uint32_t matchedSampleRate = 0;
+        uint32_t preferredSampleRate = 0;
+        double derivedSampleRate = 0.0;
+        bool hasDerivedSampleRate = false;
     };
 
     EndpointSelection best;
     EndpointSelection current;
     bool inCandidateInterface = false;
+    uint8_t currentInterfaceClass = 0;
+    uint8_t currentInterfaceSubClass = 0;
+
+    auto rateForComparison = [&](const EndpointSelection& entry) -> double {
+        if (entry.hasDerivedSampleRate) {
+            return entry.derivedSampleRate;
+        }
+        if (entry.matchedSampleRate > 0) {
+            return static_cast<double>(entry.matchedSampleRate);
+        }
+        if (entry.preferredSampleRate > 0) {
+            return static_cast<double>(entry.preferredSampleRate);
+        }
+        return 0.0;
+    };
+
+    auto diffFromRequested = [&](const EndpointSelection& entry) -> double {
+        if (requestedSampleRate <= 0) {
+            return std::numeric_limits<double>::infinity();
+        }
+        double comparisonRate = rateForComparison(entry);
+        if (comparisonRate <= 0.0) {
+            return std::numeric_limits<double>::infinity();
+        }
+        return std::fabs(comparisonRate - static_cast<double>(requestedSampleRate));
+    };
 
     auto evaluateCurrent = [&](const EndpointSelection& candidate) {
         if (!candidate.valid) {
             return;
         }
-        if (!best.valid || candidate.bytesPerInterval > best.bytesPerInterval) {
+
+        bool preferCandidate = false;
+
+        if (!best.valid) {
+            preferCandidate = true;
+        } else {
+            double candidateDiff = diffFromRequested(candidate);
+            double bestDiff = diffFromRequested(best);
+
+            double requestedRateAsDouble = static_cast<double>(requestedSampleRate);
+            double tolerance = (requestedRateAsDouble > 0.0) ? requestedRateAsDouble * 0.05 : 0.0;
+            bool candidateClose = std::isfinite(candidateDiff) && candidateDiff <= tolerance;
+            bool bestClose = std::isfinite(bestDiff) && bestDiff <= tolerance;
+
+            if (candidate.supportsRequestedRate && !best.supportsRequestedRate) {
+                preferCandidate = true;
+            } else if (candidate.supportsRequestedRate == best.supportsRequestedRate) {
+                if (requestedSampleRate > 0 && (candidateClose || bestClose)) {
+                    if (candidateClose && !bestClose) {
+                        preferCandidate = true;
+                    } else if (candidateClose == bestClose) {
+                        if (candidateDiff + 1.0 < bestDiff) {
+                            preferCandidate = true;
+                        } else if (std::fabs(candidateDiff - bestDiff) <= 1.0 &&
+                                   candidate.bytesPerInterval < best.bytesPerInterval) {
+                            preferCandidate = true;
+                        }
+                    }
+                } else if (requestedSampleRate > 0 && std::isfinite(candidateDiff) && std::isfinite(bestDiff)) {
+                    if (candidateDiff + 1.0 < bestDiff) {
+                        preferCandidate = true;
+                    } else if (std::fabs(candidateDiff - bestDiff) <= 1.0 &&
+                               candidate.bytesPerInterval < best.bytesPerInterval) {
+                        preferCandidate = true;
+                    }
+                } else {
+                    if (candidate.bytesPerInterval < best.bytesPerInterval) {
+                        preferCandidate = true;
+                    }
+                }
+            }
+        }
+
+        if (preferCandidate) {
             best = candidate;
         }
     };
@@ -430,8 +754,17 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
         switch (header->bDescriptorType) {
             case USB_DT_INTERFACE: {
                 const auto* intf = reinterpret_cast<const USBInterfaceDescriptor*>(&descriptor[offset]);
-                bool isAudioStreaming = (intf->bInterfaceClass == USB_CLASS_AUDIO &&
-                                         intf->bInterfaceSubClass == USB_SUBCLASS_AUDIOSTREAMING);
+                currentInterfaceClass = intf->bInterfaceClass;
+                currentInterfaceSubClass = intf->bInterfaceSubClass;
+                if (currentInterfaceClass == USB_CLASS_AUDIO &&
+                    currentInterfaceSubClass == USB_SUBCLASS_AUDIOCONTROL &&
+                    m_controlInterfaceNumber < 0) {
+                    m_controlInterfaceNumber = intf->bInterfaceNumber;
+                    LOGI("Detected AudioControl interface: %d", m_controlInterfaceNumber);
+                }
+
+                bool isAudioStreaming = (currentInterfaceClass == USB_CLASS_AUDIO &&
+                                         currentInterfaceSubClass == USB_SUBCLASS_AUDIOSTREAMING);
                 inCandidateInterface = isAudioStreaming && (intf->bAlternateSetting > 0);
                 current = EndpointSelection{};
                 if (inCandidateInterface) {
@@ -441,6 +774,147 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
                     LOGI("Inspecting audio streaming interface %d alt %d", 
                          current.interfaceNumber, current.altSetting);
                 }
+                break;
+            }
+
+            case USB_DT_CS_INTERFACE: {
+                const uint8_t* body = &descriptor[offset];
+                if (header->bLength < 3) {
+                    break;
+                }
+                uint8_t subType = body[2];
+
+                if (currentInterfaceClass == USB_CLASS_AUDIO) {
+                    if (currentInterfaceSubClass == USB_SUBCLASS_AUDIOCONTROL) {
+                        if (subType == UAC_CS_SUBTYPE_CLOCK_SOURCE && header->bLength >= 8) {
+                            uint8_t clockId = body[3];
+                            uint8_t bmAttributes = body[4];
+                            uint8_t bmControls = body[5];
+                            bool frequencyProgrammable = (bmControls & 0x03) != 0;
+                            if (clockId != 0) {
+                                m_clockSourceId = clockId;
+                                m_clockFrequencyProgrammable = frequencyProgrammable;
+                                m_clockSources.push_back({clockId, bmAttributes, bmControls, frequencyProgrammable});
+                                LOGI("Found Clock Source descriptor: id=%u bmAttributes=0x%02x bmControls=0x%02x programmable=%d",
+                                     clockId, bmAttributes, bmControls, frequencyProgrammable ? 1 : 0);
+                            }
+                        } else if (subType == UAC_CS_SUBTYPE_CLOCK_SELECTOR && header->bLength >= 7) {
+                            uint8_t selectorId = body[3];
+                            uint8_t numInputs = body[4];
+                            size_t minLength = static_cast<size_t>(7) + numInputs;
+                            if (selectorId != 0 && header->bLength >= minLength) {
+                                std::vector<uint8_t> inputs;
+                                inputs.reserve(numInputs);
+                                for (uint8_t idx = 0; idx < numInputs; ++idx) {
+                                    inputs.push_back(body[5 + idx]);
+                                }
+                                size_t controlOffset = 5 + numInputs;
+                                uint8_t selectorControls = (header->bLength > controlOffset) ? body[controlOffset] : 0;
+                                uint8_t selectorString = (header->bLength > controlOffset + 1) ? body[controlOffset + 1] : 0;
+                                std::ostringstream oss;
+                                for (size_t idx = 0; idx < inputs.size(); ++idx) {
+                                    if (idx > 0) {
+                                        oss << ",";
+                                    }
+                                    oss << static_cast<int>(inputs[idx]);
+                                }
+                                std::string inputsStr = oss.str();
+                                LOGI("Found Clock Selector descriptor: id=%u numInputs=%u inputs=[%s] bmControls=0x%02x iSelector=%u",
+                                     selectorId, numInputs, inputsStr.c_str(), selectorControls, selectorString);
+                                if (m_clockSelectorId < 0) {
+                                    m_clockSelectorId = selectorId;
+                                    m_clockSelectorInputs = inputs;
+                                    m_clockSelectorControls = selectorControls;
+                                }
+                            }
+                        } else if (subType == UAC_CS_SUBTYPE_CLOCK_MULTIPLIER && header->bLength >= 7) {
+                            uint8_t multiplierId = body[3];
+                            uint8_t sourceId = body[4];
+                            uint8_t multiplierControls = body[5];
+                            uint8_t multiplierString = (header->bLength > 6) ? body[6] : 0;
+                            LOGI("Found Clock Multiplier descriptor: id=%u sourceId=%u bmControls=0x%02x iMultiplier=%u",
+                                 multiplierId, sourceId, multiplierControls, multiplierString);
+                            if (m_clockMultiplierId < 0) {
+                                m_clockMultiplierId = multiplierId;
+                                m_clockMultiplierControls = multiplierControls;
+                            }
+                        }
+                    } else if (currentInterfaceSubClass == USB_SUBCLASS_AUDIOSTREAMING && inCandidateInterface) {
+                        if (subType == UAC_CS_SUBTYPE_AS_GENERAL) {
+                            if (header->bLength >= 8) {
+                                uint8_t clockId = body[7];
+                                if (clockId != 0) {
+                                    m_streamClockEntityId = clockId;
+                                    LOGI("Streaming interface references clock entity id=%u", clockId);
+                                }
+                            }
+                        } else if (subType == UAC_CS_SUBTYPE_FORMAT_TYPE) {
+                            if (header->bLength >= 8) {
+                                uint8_t formatType = body[3];
+                                uint8_t samFreqType = body[7];
+                                size_t freqListBytes = (header->bLength > 8) ? (header->bLength - 8) : 0;
+                                const uint8_t* freqPtr = body + 8;
+                                LOGI("AudioStreaming format descriptor: formatType=%u samFreqType=%u freqBytes=%zu", formatType, samFreqType, freqListBytes);
+                                auto readFreq = [&](const uint8_t* ptr, size_t availableBytes) -> uint32_t {
+                                    if (availableBytes >= 4) {
+                                        return read_le32(ptr);
+                                    } else if (availableBytes >= 3) {
+                                        return static_cast<uint32_t>(ptr[0]) |
+                                               (static_cast<uint32_t>(ptr[1]) << 8) |
+                                               (static_cast<uint32_t>(ptr[2]) << 16);
+                                    }
+                                    return 0;
+                                };
+
+                                if (samFreqType == 0) {
+                                    // Continuous range; treat as supporting requested rate
+                                    bool hasRequest = requestedSampleRate > 0;
+                                    current.supportsRequestedRate = hasRequest;
+                                    current.matchedSampleRate = hasRequest ? static_cast<uint32_t>(requestedSampleRate) : 0;
+                                    current.preferredSampleRate = hasRequest ? static_cast<uint32_t>(requestedSampleRate) : 0;
+                                    m_clockFrequencyProgrammable = true;
+                                    if (freqListBytes >= 6) {
+                                        uint32_t minFreq = readFreq(freqPtr, freqListBytes);
+                                        uint32_t maxFreq = readFreq(freqPtr + 3, freqListBytes - 3);
+                                        LOGI("AudioStreaming continuous frequency range: %u-%u Hz", minFreq, maxFreq);
+                                    } else {
+                                        LOGI("AudioStreaming continuous frequency range advertised (bytes=%zu)", freqListBytes);
+                                    }
+                                } else if (samFreqType > 0) {
+                                    size_t perEntryBytes = (samFreqType > 0) ? (freqListBytes / samFreqType) : 0;
+                                    if (perEntryBytes == 0) {
+                                        perEntryBytes = 3;
+                                    }
+                                    for (uint8_t idx = 0; idx < samFreqType; ++idx) {
+                                        size_t entryOffset = static_cast<size_t>(idx) * perEntryBytes;
+                                        if (entryOffset >= freqListBytes) {
+                                            break;
+                                        }
+                                        size_t remaining = freqListBytes - entryOffset;
+                                        uint32_t freq = readFreq(freqPtr + entryOffset, remaining);
+                                        if (freq == 0) {
+                                            continue;
+                                        }
+                                        LOGI("AudioStreaming discrete frequency[%u]=%u Hz", idx, freq);
+                                        if (idx == 0 && current.preferredSampleRate == 0) {
+                                            current.preferredSampleRate = freq;
+                                        }
+                                        if (requestedSampleRate > 0 && freq == static_cast<uint32_t>(requestedSampleRate)) {
+                                            current.supportsRequestedRate = true;
+                                            current.matchedSampleRate = freq;
+                                        }
+                                    }
+                                    if (!current.supportsRequestedRate && current.preferredSampleRate == 0 && freqListBytes >= perEntryBytes) {
+                                        current.preferredSampleRate = readFreq(freqPtr, freqListBytes);
+                                    }
+                                }
+
+                                (void)formatType; // Currently unused but parsed for completeness
+                            }
+                        }
+                    }
+                }
+
                 break;
             }
 
@@ -470,6 +944,7 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
                 candidate.packetsPerServiceInterval = std::max<size_t>(1, static_cast<size_t>(1) << std::min<int>(ep->bInterval ? (ep->bInterval - 1) : 0, 10));
                 candidate.valid = (payloadPerInterval > 0);
                 candidate.isSuperSpeed = false;
+                candidate.isHighSpeed = (transactionsPerService > 1) || (payloadPerInterval > 1023);
 
                 // Check for SuperSpeed companion descriptor
                 size_t nextOffset = offset + header->bLength;
@@ -487,13 +962,29 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
                         candidate.isoPacketSize = bytesPerInterval;
                         candidate.packetsPerServiceInterval = std::max<size_t>(1, static_cast<size_t>(1) << std::min<int>(ep->bInterval ? (ep->bInterval - 1) : 0, 10));
                         candidate.isSuperSpeed = true;
+                        candidate.isHighSpeed = false;
                     }
                 }
 
+                double frameBytes = static_cast<double>(m_channelCount) * static_cast<double>(m_bytesPerSample);
+                if (candidate.valid && frameBytes > 0.0) {
+                    size_t intervalFactor = std::max<size_t>(1, candidate.packetsPerServiceInterval);
+                    double baseRate = candidate.isSuperSpeed ? 8000.0 : (candidate.isHighSpeed ? 8000.0 : 1000.0);
+                    double framesPerInterval = static_cast<double>(candidate.isoPacketSize) / frameBytes;
+                    candidate.derivedSampleRate = framesPerInterval * (baseRate / static_cast<double>(intervalFactor));
+                    candidate.hasDerivedSampleRate = candidate.derivedSampleRate > 0.0;
+                }
+
                 if (candidate.valid) {
-                    LOGI("Found candidate endpoint 0x%02x (interface %d alt %d): basePacket=%d, transactions=%d, bytesPerInterval=%zu", 
-                         candidate.endpointAddress, candidate.interfaceNumber, candidate.altSetting,
-                         basePacketSize, transactionsPerService, candidate.bytesPerInterval);
+                    if (candidate.hasDerivedSampleRate) {
+                        LOGI("Found candidate endpoint 0x%02x (interface %d alt %d): basePacket=%d, transactions=%d, bytesPerInterval=%zu, derivedRate=%.2f Hz", 
+                             candidate.endpointAddress, candidate.interfaceNumber, candidate.altSetting,
+                             basePacketSize, transactionsPerService, candidate.bytesPerInterval, candidate.derivedSampleRate);
+                    } else {
+                        LOGI("Found candidate endpoint 0x%02x (interface %d alt %d): basePacket=%d, transactions=%d, bytesPerInterval=%zu", 
+                             candidate.endpointAddress, candidate.interfaceNumber, candidate.altSetting,
+                             basePacketSize, transactionsPerService, candidate.bytesPerInterval);
+                    }
                     evaluateCurrent(candidate);
                 }
 
@@ -519,11 +1010,57 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
     m_bytesPerInterval = best.bytesPerInterval;
     m_packetsPerServiceInterval = std::max<size_t>(1, best.packetsPerServiceInterval);
     m_isSuperSpeed = best.isSuperSpeed;
-    m_isHighSpeed = !best.isSuperSpeed;
+    m_isHighSpeed = best.isHighSpeed;
     m_endpointInfoReady = true;
 
     LOGI("Selected endpoint 0x%02x: isoPacketSize=%zu, bytesPerInterval=%zu, packetsPerServiceInterval=%zu, superSpeed=%d", 
          m_audioInEndpoint, m_isoPacketSize, m_bytesPerInterval, m_packetsPerServiceInterval, m_isSuperSpeed ? 1 : 0);
+
+    if (best.matchedSampleRate > 0 && requestedSampleRate <= 0) {
+        LOGI("Adopting descriptor-matched discrete rate %u Hz (no explicit request)", best.matchedSampleRate);
+        m_sampleRate = static_cast<int>(best.matchedSampleRate);
+    } else if (!best.supportsRequestedRate && best.preferredSampleRate > 0) {
+        if (requestedSampleRate <= 0) {
+            LOGI("Using preferred descriptor rate %u Hz (no explicit request)", best.preferredSampleRate);
+            m_sampleRate = static_cast<int>(best.preferredSampleRate);
+        } else {
+            LOGI("Descriptor does not list requested %d Hz; keeping explicit request and will attempt to program device", requestedSampleRate);
+        }
+    }
+
+    int resolvedClockSourceId = m_clockSourceId;
+    if (m_streamClockEntityId >= 0) {
+        if (m_streamClockEntityId == m_clockSelectorId) {
+            if (!m_clockSelectorInputs.empty()) {
+                resolvedClockSourceId = m_clockSelectorInputs.front();
+                LOGI("Streaming clock entity is selector %d; defaulting to first input clock source id=%d",
+                     m_clockSelectorId, resolvedClockSourceId);
+            } else {
+                LOGI("Streaming clock entity references selector %d but no inputs were parsed", m_clockSelectorId);
+            }
+        } else {
+            resolvedClockSourceId = m_streamClockEntityId;
+        }
+    }
+
+    if (resolvedClockSourceId >= 0 && resolvedClockSourceId != m_clockSourceId) {
+        m_clockSourceId = resolvedClockSourceId;
+    }
+
+    if (m_clockSourceId >= 0) {
+        auto it = std::find_if(m_clockSources.begin(), m_clockSources.end(), [&](const ClockSourceDetails& entry) {
+            return entry.id == static_cast<uint8_t>(m_clockSourceId);
+        });
+        if (it != m_clockSources.end()) {
+            m_clockFrequencyProgrammable = it->programmable;
+            LOGI("Clock source detected: id=%d programmable=%d (bmAttributes=0x%02x bmControls=0x%02x)",
+                 m_clockSourceId, m_clockFrequencyProgrammable ? 1 : 0, it->attributes, it->controls);
+        } else {
+            LOGI("Clock source detected: id=%d (details not found in parsed list)", m_clockSourceId);
+        }
+    }
+
+    updateEffectiveSampleRate();
 
     return true;
 }
@@ -761,26 +1298,10 @@ bool USBAudioInterface::enableAudioStreaming() {
     // STEP 2: Configure sample rate BEFORE enabling the interface
     // Linux USB audio does: usb_set_interface(alt 0) -> init_sample_rate() -> usb_set_interface(alt 1)
     LOGI("Step 2: Configuring sample rate to %d Hz on endpoint 0x%02x", m_sampleRate, streamingEndpoint);
-    uint8_t sampleRateData[3];
-    sampleRateData[0] = static_cast<uint8_t>(m_sampleRate & 0xFF);
-    sampleRateData[1] = static_cast<uint8_t>((m_sampleRate >> 8) & 0xFF);
-    sampleRateData[2] = static_cast<uint8_t>((m_sampleRate >> 16) & 0xFF);
-    struct usbdevfs_ctrltransfer ctrl = {0};
-    ctrl.bRequestType = 0x22; // Class, Endpoint, Host to Device
-    ctrl.bRequest = 0x01;     // SET_CUR
-    ctrl.wValue = 0x0100;     // CS_SAM_FREQ_CONTROL (Sampling Frequency Control)
-    ctrl.wIndex = streamingEndpoint;       // Target audio endpoint
-    ctrl.wLength = 3;         // 3 bytes for sample rate (24-bit)
-    ctrl.timeout = 1000;
-    ctrl.data = sampleRateData;
-    
-    int ctrl_result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
-    if (ctrl_result >= 0) {
-        LOGI("Sample rate configured successfully on endpoint");
-    } else {
-        LOGI("Sample rate control failed (errno %d: %s) - may be implicit in alt setting", errno, strerror(errno));
+    if (!configureSampleRate(m_sampleRate)) {
+        LOGI("Sample rate configuration reported no explicit success; proceeding with device defaults");
     }
-    
+
     usleep(10000); // 10ms for sample rate to take effect
     
     // STEP 2.5: Initialize pitch control (Linux USB audio driver does this)
@@ -1086,6 +1607,34 @@ size_t USBAudioInterface::getRecommendedBufferSize() const {
     size_t packetsPerUrb = std::max<size_t>(1, std::min(targetPackets, maxPackets));
 
     return m_isoPacketSize * packetsPerUrb;
+}
+
+int USBAudioInterface::getEffectiveSampleRateRounded() const {
+    if (m_effectiveSampleRate <= 0.0) {
+        return m_sampleRate;
+    }
+    return static_cast<int>(std::lround(m_effectiveSampleRate));
+}
+
+void USBAudioInterface::updateEffectiveSampleRate() {
+    double frameBytes = static_cast<double>(m_channelCount) * static_cast<double>(m_bytesPerSample);
+    m_effectiveSampleRate = static_cast<double>(m_sampleRate);
+
+    if (!m_endpointInfoReady || m_isoPacketSize == 0 || frameBytes <= 0.0) {
+        return;
+    }
+
+    size_t intervalFactor = std::max<size_t>(1, m_packetsPerServiceInterval);
+    double baseRate = (m_isHighSpeed || m_isSuperSpeed) ? 8000.0 : 1000.0;
+    double intervalsPerSecond = baseRate / static_cast<double>(intervalFactor);
+    double framesPerInterval = static_cast<double>(m_isoPacketSize) / frameBytes;
+    double computed = framesPerInterval * intervalsPerSecond;
+
+    if (computed > 0.0) {
+        m_effectiveSampleRate = computed;
+        LOGI("Derived effective sample rate: %.2f Hz (frameBytes=%.0f, baseRate=%.0f, intervalFactor=%zu)",
+             m_effectiveSampleRate, frameBytes, baseRate, intervalFactor);
+    }
 }
 
 void USBAudioInterface::release() {
