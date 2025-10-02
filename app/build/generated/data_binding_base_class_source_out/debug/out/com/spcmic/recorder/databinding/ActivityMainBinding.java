@@ -29,6 +29,12 @@ public final class ActivityMainBinding implements ViewBinding {
   public final Button btnRefreshDevices;
 
   @NonNull
+  public final Button btnResetClip;
+
+  @NonNull
+  public final LinearLayout clipIndicatorContainer;
+
+  @NonNull
   public final LevelMeterView levelMeterView;
 
   @NonNull
@@ -42,6 +48,9 @@ public final class ActivityMainBinding implements ViewBinding {
 
   @NonNull
   public final TextView tvChannelInfo;
+
+  @NonNull
+  public final TextView tvClipIndicator;
 
   @NonNull
   public final TextView tvConnectionStatus;
@@ -68,21 +77,26 @@ public final class ActivityMainBinding implements ViewBinding {
   public final TextView tvSampleRateSupport;
 
   private ActivityMainBinding(@NonNull LinearLayout rootView, @NonNull Button btnRecord,
-      @NonNull Button btnRefreshDevices, @NonNull LevelMeterView levelMeterView,
+      @NonNull Button btnRefreshDevices, @NonNull Button btnResetClip,
+      @NonNull LinearLayout clipIndicatorContainer, @NonNull LevelMeterView levelMeterView,
       @NonNull LinearLayout sampleRateContainer, @NonNull Spinner spinnerSampleRate,
       @NonNull TextView tvBitDepthInfo, @NonNull TextView tvChannelInfo,
-      @NonNull TextView tvConnectionStatus, @NonNull TextView tvFormatInfo,
-      @NonNull TextView tvNegotiatedSampleRate, @NonNull TextView tvRecordingTime,
-      @NonNull TextView tvSampleRateInfo, @NonNull TextView tvSampleRateLabel,
-      @NonNull TextView tvSampleRateStatus, @NonNull TextView tvSampleRateSupport) {
+      @NonNull TextView tvClipIndicator, @NonNull TextView tvConnectionStatus,
+      @NonNull TextView tvFormatInfo, @NonNull TextView tvNegotiatedSampleRate,
+      @NonNull TextView tvRecordingTime, @NonNull TextView tvSampleRateInfo,
+      @NonNull TextView tvSampleRateLabel, @NonNull TextView tvSampleRateStatus,
+      @NonNull TextView tvSampleRateSupport) {
     this.rootView = rootView;
     this.btnRecord = btnRecord;
     this.btnRefreshDevices = btnRefreshDevices;
+    this.btnResetClip = btnResetClip;
+    this.clipIndicatorContainer = clipIndicatorContainer;
     this.levelMeterView = levelMeterView;
     this.sampleRateContainer = sampleRateContainer;
     this.spinnerSampleRate = spinnerSampleRate;
     this.tvBitDepthInfo = tvBitDepthInfo;
     this.tvChannelInfo = tvChannelInfo;
+    this.tvClipIndicator = tvClipIndicator;
     this.tvConnectionStatus = tvConnectionStatus;
     this.tvFormatInfo = tvFormatInfo;
     this.tvNegotiatedSampleRate = tvNegotiatedSampleRate;
@@ -132,6 +146,18 @@ public final class ActivityMainBinding implements ViewBinding {
         break missingId;
       }
 
+      id = R.id.btnResetClip;
+      Button btnResetClip = ViewBindings.findChildViewById(rootView, id);
+      if (btnResetClip == null) {
+        break missingId;
+      }
+
+      id = R.id.clipIndicatorContainer;
+      LinearLayout clipIndicatorContainer = ViewBindings.findChildViewById(rootView, id);
+      if (clipIndicatorContainer == null) {
+        break missingId;
+      }
+
       id = R.id.levelMeterView;
       LevelMeterView levelMeterView = ViewBindings.findChildViewById(rootView, id);
       if (levelMeterView == null) {
@@ -159,6 +185,12 @@ public final class ActivityMainBinding implements ViewBinding {
       id = R.id.tvChannelInfo;
       TextView tvChannelInfo = ViewBindings.findChildViewById(rootView, id);
       if (tvChannelInfo == null) {
+        break missingId;
+      }
+
+      id = R.id.tvClipIndicator;
+      TextView tvClipIndicator = ViewBindings.findChildViewById(rootView, id);
+      if (tvClipIndicator == null) {
         break missingId;
       }
 
@@ -211,9 +243,10 @@ public final class ActivityMainBinding implements ViewBinding {
       }
 
       return new ActivityMainBinding((LinearLayout) rootView, btnRecord, btnRefreshDevices,
-          levelMeterView, sampleRateContainer, spinnerSampleRate, tvBitDepthInfo, tvChannelInfo,
-          tvConnectionStatus, tvFormatInfo, tvNegotiatedSampleRate, tvRecordingTime,
-          tvSampleRateInfo, tvSampleRateLabel, tvSampleRateStatus, tvSampleRateSupport);
+          btnResetClip, clipIndicatorContainer, levelMeterView, sampleRateContainer,
+          spinnerSampleRate, tvBitDepthInfo, tvChannelInfo, tvClipIndicator, tvConnectionStatus,
+          tvFormatInfo, tvNegotiatedSampleRate, tvRecordingTime, tvSampleRateInfo,
+          tvSampleRateLabel, tvSampleRateStatus, tvSampleRateSupport);
     }
     String missingId = rootView.getResources().getResourceName(id);
     throw new NullPointerException("Missing required view with ID: ".concat(missingId));

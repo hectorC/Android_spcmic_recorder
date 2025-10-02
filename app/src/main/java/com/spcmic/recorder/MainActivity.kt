@@ -2,6 +2,7 @@ package com.spcmic.recorder
 
 import android.Manifest
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
@@ -14,6 +15,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
 import androidx.lifecycle.ViewModelProvider
 import com.spcmic.recorder.databinding.ActivityMainBinding
 import java.util.Locale
@@ -164,6 +166,16 @@ class MainActivity : AppCompatActivity() {
                     // No-op
                 }
             }
+
+            btnResetClip.setOnClickListener {
+                if (::audioRecorder.isInitialized) {
+                    audioRecorder.resetClipIndicator()
+                } else {
+                    viewModel.clearClipping()
+                }
+            }
+
+            updateClipIndicator(viewModel.isClipping.value ?: false)
         }
     }
     
@@ -189,6 +201,10 @@ class MainActivity : AppCompatActivity() {
         
         viewModel.channelLevels.observe(this) { levels ->
             binding.levelMeterView.updateLevels(levels)
+        }
+
+        viewModel.isClipping.observe(this) { isClipping ->
+            updateClipIndicator(isClipping)
         }
 
         viewModel.supportedSampleRates.observe(this) { rates ->
@@ -349,6 +365,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         binding.tvSampleRateSupport.text = text
+    }
+
+    private fun updateClipIndicator(isClipping: Boolean) {
+        val indicator = binding.tvClipIndicator
+        val colorRes = if (isClipping) android.R.color.holo_red_dark else android.R.color.holo_green_dark
+        val tint = ColorStateList.valueOf(ContextCompat.getColor(this, colorRes))
+        ViewCompat.setBackgroundTintList(indicator, tint)
+        indicator.text = if (isClipping) "Clipping detected" else "No clipping detected"
     }
 
     private fun formatSampleRate(rate: Int?): String {

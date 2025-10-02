@@ -71,6 +71,8 @@ class USBAudioRecorder(
     external fun getContinuousSampleRateRangeNative(): IntArray?
     external fun getEffectiveSampleRateNative(): Int
     external fun setTargetSampleRateNative(sampleRate: Int): Boolean
+    external fun hasClippedNative(): Boolean
+    external fun resetClipIndicatorNative()
     
     companion object {
         private const val DEFAULT_SAMPLE_RATE = 48000
@@ -174,6 +176,8 @@ class USBAudioRecorder(
             isNativeInitialized = true
             android.util.Log.i("USBAudioRecorder", "Native audio initialized: ${stringFromJNI()}")
             refreshSampleRateCapabilities(targetSampleRate)
+            viewModel.clearClipping()
+            resetClipIndicatorNative()
             // TEMPORARILY DISABLED: Level monitoring disabled to focus on clean recording
             // startLevelMonitoring()
         } else {
@@ -220,6 +224,8 @@ class USBAudioRecorder(
             val success = startRecordingNative(outputFile.absolutePath)
             if (success) {
                 isRecording = true
+                viewModel.clearClipping()
+                resetClipIndicatorNative()
                 android.util.Log.i("USBAudioRecorder", "Started recording to: ${outputFile.absolutePath}")
                 
                 // Start recording monitoring job
@@ -240,9 +246,13 @@ class USBAudioRecorder(
     
     private suspend fun monitorRecording() {
         while (isRecording) {
-            // Recording monitoring can be added here if needed
-            // The native code handles the actual recording
-            delay(100) // Check every 100ms
+            val clipped = hasClippedNative()
+            if (clipped && viewModel.isClipping.value != true) {
+                withContext(Dispatchers.Main) {
+                    viewModel.setClipping(true)
+                }
+            }
+            delay(100)
         }
     }
 
@@ -332,6 +342,13 @@ class USBAudioRecorder(
         android.util.Log.i("USBAudioRecorder", "Recording stopped")
     }
 
+    fun resetClipIndicator() {
+        if (isNativeInitialized) {
+            resetClipIndicatorNative()
+        }
+        viewModel.clearClipping()
+    }
+
     fun onSampleRateSelected(rate: Int): Boolean {
         targetSampleRate = rate
 
@@ -365,6 +382,7 @@ class USBAudioRecorder(
         // Release native resources
         releaseNativeAudio()
         isNativeInitialized = false
+        viewModel.clearClipping()
         
         // Unregister USB receiver
         try {

@@ -15,6 +15,7 @@ MultichannelRecorder::MultichannelRecorder(USBAudioInterface* audioInterface)
     , m_isMonitoring(false)
     , m_totalSamples(0)
     , m_sampleRate(audioInterface ? audioInterface->getEffectiveSampleRateRounded() : 48000)
+    , m_clipDetected(false)
     , m_bufferSize(DEFAULT_BUFFER_SIZE) {
     
     // Initialize channel levels array
@@ -91,6 +92,7 @@ bool MultichannelRecorder::startRecording(const std::string& outputPath) {
     // Reset recording state
     m_totalSamples = 0;
     m_startTime = std::chrono::high_resolution_clock::now();
+    m_clipDetected.store(false);
     
     // Start recording thread
     m_isRecording.store(true);
@@ -152,6 +154,7 @@ bool MultichannelRecorder::startMonitoring() {
     
     // Set monitoring flag
     m_isMonitoring.store(true);
+    m_clipDetected.store(false);
     
     // Start monitoring thread
     m_monitoringThread = std::thread(&MultichannelRecorder::monitoringThreadFunction, this);
@@ -277,6 +280,13 @@ void MultichannelRecorder::calculateChannelLevels(const uint8_t* buffer, size_t 
             int32_t sampleValue = extract24BitSample(samplePtr);
             samplePtr += BYTES_PER_SAMPLE;
             
+            if (m_isRecording.load()) {
+                constexpr int32_t CLIP_THRESHOLD = 0x7FFFFF;
+                if (sampleValue >= CLIP_THRESHOLD || sampleValue <= -CLIP_THRESHOLD) {
+                    m_clipDetected.store(true, std::memory_order_relaxed);
+                }
+            }
+
             // Accumulate squared values for RMS calculation
             double normalizedSample = static_cast<double>(sampleValue) / 8388608.0; // 2^23
             channelSums[channel] += normalizedSample * normalizedSample;
@@ -318,4 +328,8 @@ double MultichannelRecorder::getRecordingDuration() const {
     }
     
     return static_cast<double>(m_totalSamples) / static_cast<double>(m_sampleRate);
+}
+
+void MultichannelRecorder::resetClipIndicator() {
+    m_clipDetected.store(false);
 }

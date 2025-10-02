@@ -20,6 +20,10 @@
         "source": "C:\\Users\\hcenteno\\.gradle\\daemon\\8.6\\com.spcmic.recorder.app-main-40:\\xml\\device_filter.xml"
     },
     {
+        "merged": "C:\\Users\\hcenteno\\.gradle\\daemon\\8.6\\com.spcmic.recorder.app-debug-38:\\drawable_clip_indicator_background.xml.flat",
+        "source": "C:\\Users\\hcenteno\\.gradle\\daemon\\8.6\\com.spcmic.recorder.app-main-40:\\drawable\\clip_indicator_background.xml"
+    },
+    {
         "merged": "com.spcmic.recorder.app-debug-38:/layout_activity_main.xml.flat",
         "source": "com.spcmic.recorder.app-main-40:/layout/activity_main.xml"
     }

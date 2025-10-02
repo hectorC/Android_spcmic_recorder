@@ -2637,6 +2637,7 @@ dimen m3_sys_state_pressed_state_layer_opacity
 dimen m3_timepicker_display_stroke_width
 dimen m3_timepicker_window_elevation
 dimen m3_toolbar_text_size_title
+dimen main_content_top_padding
 dimen material_bottom_sheet_max_width
 dimen material_clock_display_height
 dimen material_clock_display_padding
@@ -2983,6 +2984,7 @@ drawable btn_radio_off_mtrl
 drawable btn_radio_off_to_on_mtrl_animation
 drawable btn_radio_on_mtrl
 drawable btn_radio_on_to_off_mtrl_animation
+drawable clip_indicator_background
 drawable design_fab_background
 drawable design_ic_visibility
 drawable design_ic_visibility_off
@@ -3182,6 +3184,7 @@ id bounceEnd
 id bounceStart
 id btnRecord
 id btnRefreshDevices
+id btnResetClip
 id buttonPanel
 id cache_measures
 id callMeasure
@@ -3200,6 +3203,7 @@ id checked
 id chronometer
 id circle_center
 id clear_text
+id clipIndicatorContainer
 id clip_horizontal
 id clip_vertical
 id clockwise
@@ -3562,6 +3566,7 @@ id transition_transform
 id triangle
 id tvBitDepthInfo
 id tvChannelInfo
+id tvClipIndicator
 id tvConnectionStatus
 id tvFormatInfo
 id tvNegotiatedSampleRate

@@ -84,6 +84,30 @@ Java_com_spcmic_recorder_USBAudioRecorder_startRecordingNative(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_hasClippedNative(
+        JNIEnv* env,
+        jobject thiz) {
+
+    if (!g_recorder) {
+        return JNI_FALSE;
+    }
+
+    return g_recorder->hasClipped() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_resetClipIndicatorNative(
+        JNIEnv* env,
+        jobject thiz) {
+
+    if (!g_recorder) {
+        return;
+    }
+
+    g_recorder->resetClipIndicator();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_spcmic_recorder_USBAudioRecorder_stopRecordingNative(
         JNIEnv* env,
         jobject thiz) {

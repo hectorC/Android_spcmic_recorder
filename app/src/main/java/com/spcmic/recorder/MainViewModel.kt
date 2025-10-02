@@ -41,6 +41,9 @@ class MainViewModel : ViewModel() {
 
     private val _continuousSampleRateRange = MutableLiveData<Pair<Int, Int>?>(null)
     val continuousSampleRateRange: LiveData<Pair<Int, Int>?> = _continuousSampleRateRange
+
+    private val _isClipping = MutableLiveData(false)
+    val isClipping: LiveData<Boolean> = _isClipping
     
     private var recordingJob: Job? = null
     private var currentUSBDevice: UsbDevice? = null
@@ -49,6 +52,7 @@ class MainViewModel : ViewModel() {
         // Initialize with 84 channels, all at 0 level
         _channelLevels.value = FloatArray(84) { 0f }
         resetSampleRateState()
+    _isClipping.value = false
     }
     
     fun setUSBDevice(device: UsbDevice?) {
@@ -56,6 +60,7 @@ class MainViewModel : ViewModel() {
         _isUSBDeviceConnected.value = device != null
         if (device == null) {
             resetSampleRateState()
+            _isClipping.value = false
         }
     }
     
@@ -115,6 +120,14 @@ class MainViewModel : ViewModel() {
 
     fun setNegotiatedSampleRate(rate: Int) {
         _negotiatedSampleRate.value = rate
+    }
+
+    fun setClipping(isClipping: Boolean) {
+        _isClipping.value = isClipping
+    }
+
+    fun clearClipping() {
+        _isClipping.value = false
     }
 
     private fun resetSampleRateState() {

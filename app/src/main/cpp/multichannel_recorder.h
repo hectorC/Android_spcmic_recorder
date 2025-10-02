@@ -24,6 +24,9 @@ public:
     
     // Get real-time channel levels for UI display
     std::vector<float> getChannelLevels();
+
+    bool hasClipped() const { return m_clipDetected.load(); }
+    void resetClipIndicator();
     
     // Get recording statistics
     size_t getTotalSamplesRecorded() const { return m_totalSamples; }
@@ -46,6 +49,7 @@ private:
     size_t m_totalSamples;
     std::chrono::high_resolution_clock::time_point m_startTime;
     int m_sampleRate;
+    std::atomic<bool> m_clipDetected;
     
     // Recording parameters
     static const size_t DEFAULT_BUFFER_SIZE = 8192;  // Bytes

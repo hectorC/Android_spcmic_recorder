@@ -5,7 +5,10 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="16dp"
+    android:paddingTop="@dimen/main_content_top_padding"
     tools:context=".MainActivity">
 
     <!-- Title -->
@@ -38,7 +41,7 @@
             android:id="@+id/btnRefreshDevices"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Refresh"
+            android:text="Reconnect"
             android:layout_marginStart="8dp" />
 
     </LinearLayout>
@@ -84,6 +87,35 @@
         android:text="Device reported rate: 48,000 Hz"
         android:textSize="14sp"
         android:layout_marginBottom="16dp" />
+
+    <LinearLayout
+        android:id="@+id/clipIndicatorContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="16dp">
+
+        <TextView
+            android:id="@+id/tvClipIndicator"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="No clipping detected"
+            android:padding="12dp"
+            android:textSize="14sp"
+            android:textColor="@android:color/white"
+            android:gravity="center_vertical"
+            android:background="@drawable/clip_indicator_background" />
+
+        <Button
+            android:id="@+id/btnResetClip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Reset"
+            android:layout_marginStart="12dp" />
+
+    </LinearLayout>
 
     <!-- Recording Controls -->
     <LinearLayout
@@ -173,7 +205,8 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:scrollbars="horizontal">
+        android:scrollbars="horizontal"
+        android:visibility="gone">
 
         <HorizontalScrollView
             android:layout_width="match_parent"

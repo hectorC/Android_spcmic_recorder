@@ -7,6 +7,6 @@
     <string name="usb_device_not_found">No USB Audio Device Found</string>
     <string name="permission_required">Audio recording permission is required</string>
     <string name="recording_failed">Failed to start recording</string>
-    <string name="refresh_devices">Refresh</string>
+    <string name="refresh_devices">Reconnect</string>
     <string name="recording_time_format" formatted="false">%02d:%02d:%02d</string>
 </resources>
