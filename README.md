@@ -1,23 +1,23 @@
 # SPCMic 84-Channel Audio Recorder
 
-An Android application for recording 84 channels of uncompressed audio from the SPCMic (microphone array) via USB-C connection.
+An Android application for capturing the full 84-channel output of the SPCMic array over USB-C and saving it as 24-bit multichannel WAV files. The app now includes adaptive sample-rate selection and a clipping indicator to simplify field use.
 
 ## Features
 
-- **84-Channel Recording**: Supports recording from all 84 channels of the SPCMic array
-- **High Quality Audio**: Records at 48kHz sample rate with 24-bit depth
-- **Uncompressed WAV**: Saves audio in uncompressed WAV format for maximum quality
-- **Real-time Level Meters**: Visual display of audio levels for all 84 channels
-- **USB Audio Support**: Direct connection via USB-C to Android devices
-- **Professional Interface**: Clean, intuitive UI designed for professional recording
+- **84-Channel Recording** – Streams and stores every channel from the SPCMic array with deterministic channel order.
+- **Sample-Rate Picker** – UI exposes the discrete or continuous rates reported by the connected device (e.g., 48 kHz and 96 kHz for SPCMic). Requests are negotiated through the USB clock source.
+- **24-bit Uncompressed WAV** – Files are written with the negotiated rate, 24-bit samples, and 84 interleaved channels.
+- **Clipping Indicator** – Latched “Clip” pill lights up if any channel hits 0 dBFS during the take; tap Reset to clear.
+- **USB-C / UAC2 Support** – Communicates directly with UAC-compliant hardware without Android’s AudioRecord pipeline.
+- **Lean UI** – Primary controls (connect, sample rate, record, clip status) optimized for quick deployment. The legacy multi-channel level meter is still present in code and can be re-enabled for diagnostics.
 
 ## Technical Specifications
 
-- **Sample Rate**: 48 kHz
-- **Bit Depth**: 24-bit
-- **Channels**: 84 (multichannel)
-- **Format**: Uncompressed WAV
-- **Connection**: USB Audio Class compliant devices
+- **Sample Rates**: Any discrete/continuous rates advertised by the device (SPCMic exposes 48 kHz & 96 kHz; additional rates may appear after future firmware updates).
+- **Bit Depth**: 24-bit PCM
+- **Channels**: 84 interleaved
+- **Container**: RIFF/WAV with full channel count metadata
+- **Connection**: USB Audio Class 2 (tested with SPCMic via USB-C OTG)
 - **Minimum Android Version**: API 29 (Android 10)
 
 ## Requirements
@@ -25,8 +25,8 @@ An Android application for recording 84 channels of uncompressed audio from the 
 ### Hardware
 - Android device with USB-C port and USB Host support
 - SPCMic 84-channel microphone array
-- USB-C cable
-- Sufficient storage space (24-bit/48kHz/84ch = ~1GB per minute)
+- USB-C OTG / host-capable cable
+- High-speed storage (24-bit/48kHz/84ch ≈ 1 GB/minute)
 
 ### Software
 - Android 10.0 (API level 29) or higher
@@ -35,19 +35,20 @@ An Android application for recording 84 channels of uncompressed audio from the 
 
 ## Installation
 
-1. Clone or download this repository
-2. Open the project in Android Studio
-3. Build and install the APK on your Android device
-4. Grant necessary permissions when prompted
+1. Clone this repository (`git clone https://github.com/<you>/Android_spcmic_recorder.git`)
+2. Open the project in Android Studio (Giraffe or newer)
+3. Build and install the Debug APK on your Android device
+4. On first launch, grant USB and audio recording permissions when prompted
 
 ## Usage
 
-1. **Connect the SPCMic**: Plug the SPCMic array into your Android device via USB-C
-2. **Launch the App**: Open the SPCMic Recorder application
-3. **Check Connection**: Verify that "USB Audio Device Connected" appears
-4. **Monitor Levels**: View real-time level meters for all 84 channels
-5. **Start Recording**: Tap "Start Recording" to begin capture
-6. **Stop Recording**: Tap "Stop Recording" to end and save the file
+1. **Connect the SPCMic** – Plug the array into the Android device via USB-C. Use the on-screen *Reconnect* button if Android races you to the claim.
+2. **Launch the App** – “USB Audio Device Connected” confirms we hold the interface.
+3. **Select Sample Rate** – Use the spinner to choose from the supported rates. The UI also shows the device-reported rate after negotiation.
+4. **Check Clip Status** – The clipping pill starts green (“No clipping detected”). It latches red if any channel hits full-scale.
+5. **Start Recording** – Tap **Start Recording** to begin capture. The second label shows the negotiated rate that will be embedded in the WAV file.
+6. **Reset Clipping (Optional)** – Tap **Reset** to clear the clip latch during a take.
+7. **Stop Recording** – Tap **Stop** to finish and flush the WAV header.
 
 ## File Storage
 
@@ -61,22 +62,24 @@ Files are named with timestamp format:
 spcmic_recording_YYYYMMDD_HHMMSS.wav
 ```
 
+> **Note**: The channel count makes files large. A 10-minute take at 48 kHz is ~10 GB.
+
 ## Technical Notes
 
-### USB Audio Limitations
-- Android's standard AudioRecord API has limitations with multichannel USB audio
-- This implementation provides a framework that can be extended with custom USB audio drivers
-- For production use, consider integrating with specialized USB audio libraries
+### USB Audio Behaviour
+- The app bypasses Android’s `AudioRecord` stack and talks to the USB device directly. We parse descriptors, program the clock source, set interface alt settings, and submit isochronous URBs over JNI.
+- The sample-rate picker lists only the rates advertised by the selected interface/alt setting. If a rate is absent (e.g. 44.1 kHz), the hardware likely reserves it for a different alt setting.
+- If the device rejects a rate change, use the *Reconnect* button to re-enumerate and request again.
 
 ### Performance Considerations
-- 84-channel recording at 24-bit/48kHz generates approximately 1GB of data per minute
-- Ensure sufficient storage space and USB transfer speeds
-- Monitor device temperature during extended recording sessions
+- **Data rate**: 24-bit × 84 channels × 48 kHz ≈ 9.7 MB/s (~1 GB/minute). 96 kHz doubles the throughput.
+- Use fast storage (UFS 3.x / external SSD) and ensure >20 GB free before long sessions.
+- Monitor device thermals during extended recordings; consider active cooling for best stability.
 
-### Storage Requirements
-- **Per Minute**: ~1GB (84 ch × 48kHz × 24-bit × 60s)
-- **Per Hour**: ~60GB
-- **Recommended**: Use high-speed storage (UFS 3.0+) for optimal performance
+### Storage Requirements (rule of thumb)
+- **Per Minute @ 48 kHz**: ~1.0 GB
+- **Per Minute @ 96 kHz**: ~2.0 GB
+- **Per Hour @ 48 kHz**: ~60 GB
 
 ## Development
 
@@ -92,11 +95,12 @@ cd Android_spcmic_recorder
 - `USBAudioRecorder.kt`: Core audio recording functionality
 - `LevelMeterView.kt`: Custom view for 84-channel level display
 - `MainViewModel.kt`: App state and data management
+- `native-lib.cpp` / `usb_audio_interface.cpp`: JNI bridge and USB audio engine
 
 ### Architecture
 - **MVVM Pattern**: Clean separation of UI, business logic, and data
 - **Kotlin Coroutines**: Efficient async audio processing
-- **Custom Views**: Optimized UI components for multichannel display
+- **Custom Views**: 84-channel meter (currently hidden by default, can be re-enabled for debugging)
 - **USB Host API**: Direct USB device communication
 
 ## Permissions
@@ -113,22 +117,21 @@ The app requires the following permissions:
 ### Common Issues
 
 **USB Device Not Detected**
-- Verify USB Host support on your Android device
-- Check that the SPCMic is USB Audio Class compliant
-- Try a different USB-C cable
-- Restart the app and reconnect the device
+- Verify your Android device supports USB Host/OTG.
+- Confirm the SPCMic is receiving power and enumerates on other hosts.
+- Tap the **Reconnect** button to reclaim interfaces if Android Audio captures them first.
+
+**Sample Rate Change Rejected**
+- Some hardware exposes different rates on different alternate settings. If a request fails, tap **Reconnect** and retry at a supported rate (the UI shows the negotiated value).
 
 **Recording Quality Issues**
-- Ensure adequate storage space
-- Close other audio applications
-- Check USB connection stability
-- Monitor device temperature
+- Check the negotiated rate label; if it differs from your request, reconnect.
+- Ensure adequate storage bandwidth and free space.
+- Keep the device cool and avoid running heavy background apps.
 
-**Performance Issues**
-- Clear storage space (recommended 10GB+ free)
-- Close background applications
-- Ensure USB 3.0+ connection speeds
-- Consider using external storage
+**Large File Management**
+- WAV files are huge; transfer them off-device promptly.
+- Add `*.wav` to `.gitignore` to avoid committing them to version control.
 
 ## License
 
