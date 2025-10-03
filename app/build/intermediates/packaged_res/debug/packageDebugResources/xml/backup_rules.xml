@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<full-backup-content>
-    <!-- Exclude audio recordings from backup -->
-    <exclude domain="file" path="SPCMicRecorder/" />
-</full-backup-content>
