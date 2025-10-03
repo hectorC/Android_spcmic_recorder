@@ -17,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.lifecycle.ViewModelProvider
+import android.view.WindowManager
 import com.spcmic.recorder.databinding.ActivityMainBinding
 import java.util.Locale
 
@@ -70,9 +71,9 @@ class MainActivity : AppCompatActivity() {
             usbDevice?.let { device ->
                 Log.i("MainActivity", "USB device attached: ${device.deviceName} (${device.manufacturerName} ${device.productName})")
                 
-                // Check if this is our target SPCMic device
+                // Check if this is our target spcmic device
                 if (device.vendorId == 22564 && device.productId == 10208) {
-                    Log.i("MainActivity", "SPCMic device detected - claiming device immediately")
+                    Log.i("MainActivity", "spcmic device detected - claiming device immediately")
                     
                     // Claim the device immediately to prevent Android audio system from taking it
                     claimUsbDevice(device)
@@ -96,11 +97,11 @@ class MainActivity : AppCompatActivity() {
             val success = audioRecorder.connectToDevice(device)
             if (success) {
                 viewModel.setUSBDevice(device)
-                Toast.makeText(this, "SPCMic claimed successfully!", Toast.LENGTH_SHORT).show()
-                Log.i("MainActivity", "Successfully claimed SPCMic device")
+                Toast.makeText(this, "spcmic claimed successfully!", Toast.LENGTH_SHORT).show()
+                Log.i("MainActivity", "Successfully claimed spcmic device")
             } else {
-                Log.e("MainActivity", "Failed to claim SPCMic device")
-                Toast.makeText(this, "Failed to claim SPCMic device", Toast.LENGTH_SHORT).show()
+                Log.e("MainActivity", "Failed to claim spcmic device")
+                Toast.makeText(this, "Failed to claim spcmic device", Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             Log.e("MainActivity", "Exception while claiming USB device", e)
@@ -181,15 +182,17 @@ class MainActivity : AppCompatActivity() {
     
     private fun observeViewModel() {
         viewModel.isRecording.observe(this) { isRecording ->
-            binding.btnRecord.text = if (isRecording) "Stop Recording" else "Start Recording"
+            binding.btnRecord.text = if (isRecording) getString(R.string.record_button_stop) else getString(R.string.record_button_start)
             binding.btnRecord.isEnabled = viewModel.isUSBDeviceConnected.value == true
+            val colorRes = if (isRecording) R.color.timecode_recording else R.color.brand_on_surface
+            binding.tvRecordingTime.setTextColor(ContextCompat.getColor(this, colorRes))
         }
         
         viewModel.isUSBDeviceConnected.observe(this) { isConnected ->
             binding.tvConnectionStatus.text = if (isConnected) {
-                "USB Audio Device Connected"
+                getString(R.string.usb_device_connected)
             } else {
-                "No USB Audio Device Found"
+                getString(R.string.usb_device_not_found)
             }
             binding.btnRecord.isEnabled = isConnected && !viewModel.isRecording.value!!
             binding.spinnerSampleRate.isEnabled = isConnected && currentSupportedSampleRates.isNotEmpty()
@@ -199,6 +202,10 @@ class MainActivity : AppCompatActivity() {
             binding.tvRecordingTime.text = formatTime(time)
         }
         
+        viewModel.recordingFileName.observe(this) { fileName ->
+            binding.tvRecordingFilename.text = if (fileName.isNullOrBlank()) " " else fileName
+        }
+
         viewModel.channelLevels.observe(this) { levels ->
             binding.levelMeterView.updateLevels(levels)
         }
@@ -291,7 +298,7 @@ class MainActivity : AppCompatActivity() {
         if (audioDevices.isNotEmpty()) {
             val device = audioDevices.first()
             
-            // Check if this is SPCMic - use dedicated claiming
+            // Check if this is spcmic - use dedicated claiming
             if (device.vendorId == 22564 && device.productId == 10208) {
                 claimUsbDevice(device)
             } else {
@@ -318,6 +325,7 @@ class MainActivity : AppCompatActivity() {
     private fun startRecording() {
         if (audioRecorder.startRecording()) {
             viewModel.startRecording()
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             Toast.makeText(this, "Failed to start recording", Toast.LENGTH_SHORT).show()
         }
@@ -326,6 +334,7 @@ class MainActivity : AppCompatActivity() {
     private fun stopRecording() {
         audioRecorder.stopRecording()
         viewModel.stopRecording()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     private fun updateSampleRateSpinnerSelection() {
@@ -369,10 +378,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateClipIndicator(isClipping: Boolean) {
         val indicator = binding.tvClipIndicator
-        val colorRes = if (isClipping) android.R.color.holo_red_dark else android.R.color.holo_green_dark
+        val colorRes = if (isClipping) R.color.clip_indicator_alert else R.color.clip_indicator_idle
         val tint = ColorStateList.valueOf(ContextCompat.getColor(this, colorRes))
         ViewCompat.setBackgroundTintList(indicator, tint)
-        indicator.text = if (isClipping) "Clipping detected" else "No clipping detected"
+        indicator.text = if (isClipping) getString(R.string.clipping_detected) else getString(R.string.no_clipping_detected)
     }
 
     private fun formatSampleRate(rate: Int?): String {

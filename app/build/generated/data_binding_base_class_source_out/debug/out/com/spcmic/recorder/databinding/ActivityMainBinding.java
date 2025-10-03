@@ -4,14 +4,16 @@ package com.spcmic.recorder.databinding;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.viewbinding.ViewBinding;
 import androidx.viewbinding.ViewBindings;
+import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.button.MaterialButton;
 import com.spcmic.recorder.LevelMeterView;
 import com.spcmic.recorder.R;
 import java.lang.NullPointerException;
@@ -20,16 +22,16 @@ import java.lang.String;
 
 public final class ActivityMainBinding implements ViewBinding {
   @NonNull
-  private final LinearLayout rootView;
+  private final CoordinatorLayout rootView;
 
   @NonNull
-  public final Button btnRecord;
+  public final MaterialButton btnRecord;
 
   @NonNull
-  public final Button btnRefreshDevices;
+  public final MaterialButton btnRefreshDevices;
 
   @NonNull
-  public final Button btnResetClip;
+  public final MaterialButton btnResetClip;
 
   @NonNull
   public final LinearLayout clipIndicatorContainer;
@@ -42,6 +44,9 @@ public final class ActivityMainBinding implements ViewBinding {
 
   @NonNull
   public final Spinner spinnerSampleRate;
+
+  @NonNull
+  public final MaterialToolbar topAppBar;
 
   @NonNull
   public final TextView tvBitDepthInfo;
@@ -62,6 +67,9 @@ public final class ActivityMainBinding implements ViewBinding {
   public final TextView tvNegotiatedSampleRate;
 
   @NonNull
+  public final TextView tvRecordingFilename;
+
+  @NonNull
   public final TextView tvRecordingTime;
 
   @NonNull
@@ -76,16 +84,17 @@ public final class ActivityMainBinding implements ViewBinding {
   @NonNull
   public final TextView tvSampleRateSupport;
 
-  private ActivityMainBinding(@NonNull LinearLayout rootView, @NonNull Button btnRecord,
-      @NonNull Button btnRefreshDevices, @NonNull Button btnResetClip,
-      @NonNull LinearLayout clipIndicatorContainer, @NonNull LevelMeterView levelMeterView,
-      @NonNull LinearLayout sampleRateContainer, @NonNull Spinner spinnerSampleRate,
+  private ActivityMainBinding(@NonNull CoordinatorLayout rootView,
+      @NonNull MaterialButton btnRecord, @NonNull MaterialButton btnRefreshDevices,
+      @NonNull MaterialButton btnResetClip, @NonNull LinearLayout clipIndicatorContainer,
+      @NonNull LevelMeterView levelMeterView, @NonNull LinearLayout sampleRateContainer,
+      @NonNull Spinner spinnerSampleRate, @NonNull MaterialToolbar topAppBar,
       @NonNull TextView tvBitDepthInfo, @NonNull TextView tvChannelInfo,
       @NonNull TextView tvClipIndicator, @NonNull TextView tvConnectionStatus,
       @NonNull TextView tvFormatInfo, @NonNull TextView tvNegotiatedSampleRate,
-      @NonNull TextView tvRecordingTime, @NonNull TextView tvSampleRateInfo,
-      @NonNull TextView tvSampleRateLabel, @NonNull TextView tvSampleRateStatus,
-      @NonNull TextView tvSampleRateSupport) {
+      @NonNull TextView tvRecordingFilename, @NonNull TextView tvRecordingTime,
+      @NonNull TextView tvSampleRateInfo, @NonNull TextView tvSampleRateLabel,
+      @NonNull TextView tvSampleRateStatus, @NonNull TextView tvSampleRateSupport) {
     this.rootView = rootView;
     this.btnRecord = btnRecord;
     this.btnRefreshDevices = btnRefreshDevices;
@@ -94,12 +103,14 @@ public final class ActivityMainBinding implements ViewBinding {
     this.levelMeterView = levelMeterView;
     this.sampleRateContainer = sampleRateContainer;
     this.spinnerSampleRate = spinnerSampleRate;
+    this.topAppBar = topAppBar;
     this.tvBitDepthInfo = tvBitDepthInfo;
     this.tvChannelInfo = tvChannelInfo;
     this.tvClipIndicator = tvClipIndicator;
     this.tvConnectionStatus = tvConnectionStatus;
     this.tvFormatInfo = tvFormatInfo;
     this.tvNegotiatedSampleRate = tvNegotiatedSampleRate;
+    this.tvRecordingFilename = tvRecordingFilename;
     this.tvRecordingTime = tvRecordingTime;
     this.tvSampleRateInfo = tvSampleRateInfo;
     this.tvSampleRateLabel = tvSampleRateLabel;
@@ -109,7 +120,7 @@ public final class ActivityMainBinding implements ViewBinding {
 
   @Override
   @NonNull
-  public LinearLayout getRoot() {
+  public CoordinatorLayout getRoot() {
     return rootView;
   }
 
@@ -135,19 +146,19 @@ public final class ActivityMainBinding implements ViewBinding {
     int id;
     missingId: {
       id = R.id.btnRecord;
-      Button btnRecord = ViewBindings.findChildViewById(rootView, id);
+      MaterialButton btnRecord = ViewBindings.findChildViewById(rootView, id);
       if (btnRecord == null) {
         break missingId;
       }
 
       id = R.id.btnRefreshDevices;
-      Button btnRefreshDevices = ViewBindings.findChildViewById(rootView, id);
+      MaterialButton btnRefreshDevices = ViewBindings.findChildViewById(rootView, id);
       if (btnRefreshDevices == null) {
         break missingId;
       }
 
       id = R.id.btnResetClip;
-      Button btnResetClip = ViewBindings.findChildViewById(rootView, id);
+      MaterialButton btnResetClip = ViewBindings.findChildViewById(rootView, id);
       if (btnResetClip == null) {
         break missingId;
       }
@@ -173,6 +184,12 @@ public final class ActivityMainBinding implements ViewBinding {
       id = R.id.spinnerSampleRate;
       Spinner spinnerSampleRate = ViewBindings.findChildViewById(rootView, id);
       if (spinnerSampleRate == null) {
+        break missingId;
+      }
+
+      id = R.id.topAppBar;
+      MaterialToolbar topAppBar = ViewBindings.findChildViewById(rootView, id);
+      if (topAppBar == null) {
         break missingId;
       }
 
@@ -212,6 +229,12 @@ public final class ActivityMainBinding implements ViewBinding {
         break missingId;
       }
 
+      id = R.id.tvRecordingFilename;
+      TextView tvRecordingFilename = ViewBindings.findChildViewById(rootView, id);
+      if (tvRecordingFilename == null) {
+        break missingId;
+      }
+
       id = R.id.tvRecordingTime;
       TextView tvRecordingTime = ViewBindings.findChildViewById(rootView, id);
       if (tvRecordingTime == null) {
@@ -242,11 +265,12 @@ public final class ActivityMainBinding implements ViewBinding {
         break missingId;
       }
 
-      return new ActivityMainBinding((LinearLayout) rootView, btnRecord, btnRefreshDevices,
+      return new ActivityMainBinding((CoordinatorLayout) rootView, btnRecord, btnRefreshDevices,
           btnResetClip, clipIndicatorContainer, levelMeterView, sampleRateContainer,
-          spinnerSampleRate, tvBitDepthInfo, tvChannelInfo, tvClipIndicator, tvConnectionStatus,
-          tvFormatInfo, tvNegotiatedSampleRate, tvRecordingTime, tvSampleRateInfo,
-          tvSampleRateLabel, tvSampleRateStatus, tvSampleRateSupport);
+          spinnerSampleRate, topAppBar, tvBitDepthInfo, tvChannelInfo, tvClipIndicator,
+          tvConnectionStatus, tvFormatInfo, tvNegotiatedSampleRate, tvRecordingFilename,
+          tvRecordingTime, tvSampleRateInfo, tvSampleRateLabel, tvSampleRateStatus,
+          tvSampleRateSupport);
     }
     String missingId = rootView.getResources().getResourceName(id);
     throw new NullPointerException("Missing required view with ID: ".concat(missingId));

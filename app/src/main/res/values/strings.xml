@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">SPCMic Recorder</string>
+    <string name="app_name">spcmic Recorder</string>
     <string name="record_button_start">Start Recording</string>
     <string name="record_button_stop">Stop Recording</string>
     <string name="usb_device_connected">USB Audio Device Connected</string>
@@ -9,4 +9,12 @@
     <string name="recording_failed">Failed to start recording</string>
     <string name="refresh_devices">Reconnect</string>
     <string name="recording_time_format" formatted="false">%02d:%02d:%02d</string>
+    <string name="app_title">spcmic 84-Channel Recorder</string>
+    <string name="session_time_label">Session Time</string>
+    <string name="usb_connection_title">USB Connection</string>
+    <string name="sample_rate_title">Sample Rate</string>
+    <string name="no_clipping_detected">No clipping detected</string>
+    <string name="reset_clip">Reset</string>
+    <string name="recording_configuration_title">Recording Configuration</string>
+    <string name="clipping_detected">Clipping detected</string>
 </resources>

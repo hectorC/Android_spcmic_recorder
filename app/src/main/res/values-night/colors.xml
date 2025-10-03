@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark theme palette -->
+    <color name="brand_primary">#00C8A5</color>
+    <color name="brand_on_primary">#002922</color>
+    <color name="brand_secondary">#3EB5E1</color>
+    <color name="brand_on_secondary">#001B28</color>
+    <color name="brand_surface">#0B0F14</color>
+    <color name="brand_on_surface">#E2E8EE</color>
+    <color name="brand_surface_variant">#151B22</color>
+    <color name="brand_on_surface_variant">#BBC5CF</color>
+    <color name="brand_background">#070A0F</color>
+    <color name="brand_on_background">#E2E8EE</color>
+    <color name="brand_outline">#404952</color>
+    <color name="brand_secondary_container">#114C44</color>
+    <color name="brand_on_secondary_container">#CEFFF0</color>
+
+    <!-- UI accents -->
+    <color name="clip_indicator_idle">#29C58C</color>
+    <color name="clip_indicator_alert">#FF5555</color>
+    <color name="card_surface">#121820</color>
+    <color name="card_stroke">#27313B</color>
+    <color name="timecode_recording">#FF6666</color>
+</resources>

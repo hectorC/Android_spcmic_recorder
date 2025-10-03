@@ -226,6 +226,7 @@ class USBAudioRecorder(
                 isRecording = true
                 viewModel.clearClipping()
                 resetClipIndicatorNative()
+                viewModel.setRecordingFileName(outputFile.name)
                 android.util.Log.i("USBAudioRecorder", "Started recording to: ${outputFile.absolutePath}")
                 
                 // Start recording monitoring job
@@ -294,7 +295,7 @@ class USBAudioRecorder(
         val desiredSelection = viewModel.selectedSampleRate.value ?: requestedSampleRate
         targetSampleRate = desiredSelection
 
-        if (desiredSelection != negotiated && desiredSelection != requestedSampleRate) {
+        if (desiredSelection != negotiated) {
             val applied = setTargetSampleRateNative(desiredSelection)
             if (applied) {
                 val refreshedNegotiated = getEffectiveSampleRateNative().takeIf { it > 0 } ?: desiredSelection

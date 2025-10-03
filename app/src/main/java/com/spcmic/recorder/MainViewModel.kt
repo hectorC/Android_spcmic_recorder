@@ -44,6 +44,9 @@ class MainViewModel : ViewModel() {
 
     private val _isClipping = MutableLiveData(false)
     val isClipping: LiveData<Boolean> = _isClipping
+
+    private val _recordingFileName = MutableLiveData<String?>(null)
+    val recordingFileName: LiveData<String?> = _recordingFileName
     
     private var recordingJob: Job? = null
     private var currentUSBDevice: UsbDevice? = null
@@ -61,6 +64,7 @@ class MainViewModel : ViewModel() {
         if (device == null) {
             resetSampleRateState()
             _isClipping.value = false
+            _recordingFileName.value = null
         }
     }
     
@@ -128,6 +132,10 @@ class MainViewModel : ViewModel() {
 
     fun clearClipping() {
         _isClipping.value = false
+    }
+
+    fun setRecordingFileName(name: String?) {
+        _recordingFileName.value = name
     }
 
     private fun resetSampleRateState() {
