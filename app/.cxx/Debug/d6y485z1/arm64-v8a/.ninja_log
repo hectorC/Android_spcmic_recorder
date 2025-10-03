@@ -89,3 +89,7 @@
 3	651	7811464286280622	CMakeFiles/spcmic_recorder.dir/native-lib.cpp.o	da414442b5fbe020
 9	705	7811464286861358	CMakeFiles/spcmic_recorder.dir/multichannel_recorder.cpp.o	1977afed2e35c0dc
 706	820	7811464288108538	D:/Audio_Projects/Android_spcmic_recorder/app/build/intermediates/cxx/Debug/d6y485z1/obj/arm64-v8a/libspcmic_recorder.so	cee9666d57cdce30
+6	5352	7812286348892803	CMakeFiles/spcmic_recorder.dir/native-lib.cpp.o	da414442b5fbe020
+63	5387	7812286349212024	CMakeFiles/spcmic_recorder.dir/multichannel_recorder.cpp.o	1977afed2e35c0dc
+56	5520	7812286350537353	CMakeFiles/spcmic_recorder.dir/usb_audio_interface.cpp.o	b497150e279d803f
+5520	6038	7812286355830844	D:/Audio_Projects/Android_spcmic_recorder/app/build/intermediates/cxx/Debug/d6y485z1/obj/arm64-v8a/libspcmic_recorder.so	cee9666d57cdce30

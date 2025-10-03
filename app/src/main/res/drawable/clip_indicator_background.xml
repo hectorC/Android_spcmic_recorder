@@ -1,11 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="@color/clip_indicator_idle" />
-    <corners android:radius="999dp" />
-    <padding
-        android:bottom="8dp"
-        android:left="16dp"
-        android:right="16dp"
-        android:top="8dp" />
-</shape>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- State when clipping detected -->
+    <item android:state_selected="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/clip_indicator_alert" />
+            <corners android:radius="999dp" />
+            <padding
+                android:bottom="10dp"
+                android:left="20dp"
+                android:right="20dp"
+                android:top="10dp" />
+        </shape>
+    </item>
+    <!-- Default idle state -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/clip_indicator_idle" />
+            <corners android:radius="999dp" />
+            <padding
+                android:bottom="10dp"
+                android:left="20dp"
+                android:right="20dp"
+                android:top="10dp" />
+        </shape>
+    </item>
+</selector>
+

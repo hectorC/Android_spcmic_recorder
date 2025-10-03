@@ -1,4 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Dimension resources for consistent spacing and sizing -->
 <resources>
     <dimen name="main_content_top_padding">32dp</dimen>
+    
+    <!-- Card dimensions -->
+    <dimen name="card_corner_radius">24dp</dimen>
+    <dimen name="card_elevation">2dp</dimen>
+    <dimen name="card_elevation_recording">8dp</dimen>
+    
+    <!-- Button dimensions -->
+    <dimen name="button_corner_radius">28dp</dimen>
+    <dimen name="button_height_large">72dp</dimen>
+    <dimen name="button_elevation">4dp</dimen>
+    
+    <!-- Icon sizes -->
+    <dimen name="icon_size_small">20dp</dimen>
+    <dimen name="icon_size_medium">24dp</dimen>
+    <dimen name="icon_size_large">32dp</dimen>
+    <dimen name="icon_size_xlarge">48dp</dimen>
+    
+    <!-- Spacing -->
+    <dimen name="spacing_xs">4dp</dimen>
+    <dimen name="spacing_sm">8dp</dimen>
+    <dimen name="spacing_md">16dp</dimen>
+    <dimen name="spacing_lg">24dp</dimen>
+    <dimen name="spacing_xl">32dp</dimen>
 </resources>

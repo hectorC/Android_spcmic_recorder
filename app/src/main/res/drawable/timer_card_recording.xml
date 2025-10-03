@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Background gradient -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="135"
+                android:startColor="#FEF2F2"
+                android:endColor="#FFF1F2"
+                android:type="linear" />
+            <corners android:radius="24dp" />
+        </shape>
+    </item>
+    <!-- Subtle border -->
+    <item>
+        <shape android:shape="rectangle">
+            <stroke
+                android:width="2dp"
+                android:color="#FEE2E2" />
+            <corners android:radius="24dp" />
+        </shape>
+    </item>
+</layer-list>

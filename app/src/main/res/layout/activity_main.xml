@@ -4,14 +4,16 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@drawable/background_gradient"
     android:fitsSystemWindows="true"
     tools:context=".MainActivity">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/brand_background"
-        android:fitsSystemWindows="true">
+        android:background="@drawable/gradient_purple_background"
+        android:fitsSystemWindows="true"
+        android:elevation="0dp">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/topAppBar"
@@ -22,7 +24,7 @@
             app:contentInsetStartWithNavigation="0dp"
             app:title="@string/app_title"
             app:titleCentered="true"
-            app:titleTextColor="@color/brand_on_surface" />
+            app:titleTextColor="@color/white" />
 
     </com.google.android.material.appbar.AppBarLayout>
 
@@ -42,30 +44,33 @@
             android:orientation="vertical">
 
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/timerCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="24dp"
-                app:cardBackgroundColor="@color/brand_surface_variant"
-                app:cardCornerRadius="20dp"
-                app:cardElevation="0dp"
+                app:cardBackgroundColor="@color/card_surface"
+                app:cardCornerRadius="24dp"
+                app:cardElevation="4dp"
                 app:strokeColor="@color/card_stroke"
-                app:strokeWidth="1dp">
+                app:strokeWidth="0dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center_horizontal"
                     android:orientation="vertical"
-                    android:paddingVertical="24dp"
+                    android:paddingVertical="32dp"
                     android:paddingHorizontal="20dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="8dp"
+                        android:layout_marginBottom="12dp"
                         android:text="@string/session_time_label"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/brand_on_surface_variant" />
+                        android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
+                        android:textColor="@color/brand_on_surface_variant"
+                        android:textAllCaps="true"
+                        android:letterSpacing="0.1" />
 
                     <TextView
                         android:id="@+id/tvRecordingTime"
@@ -75,18 +80,20 @@
                         android:textAppearance="@style/TextAppearance.Material3.DisplayLarge"
                         android:textStyle="bold"
                         android:textColor="@color/brand_on_surface"
-                        android:letterSpacing="0.05"
-                        android:includeFontPadding="false" />
+                        android:letterSpacing="0.02"
+                        android:fontFamily="monospace"
+                        android:includeFontPadding="false"
+                        android:textSize="56sp" />
 
                     <TextView
                         android:id="@+id/tvRecordingFilename"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:layout_marginTop="16dp"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
                         android:textColor="@color/brand_on_surface_variant"
                         android:freezesText="true"
-                        android:ellipsize="end"
+                        android:ellipsize="middle"
                         android:maxLines="1"
                         android:importantForAccessibility="no"
                         android:text=" "
@@ -102,22 +109,28 @@
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="24dp"
                 android:enabled="false"
-                android:minHeight="64dp"
+                android:minHeight="72dp"
                 android:text="@string/record_button_start"
                 android:textAllCaps="false"
-                android:textColor="@color/brand_on_primary"
+                android:textColor="@color/white"
                 android:textSize="20sp"
+                android:textStyle="bold"
+                app:icon="@drawable/ic_microphone"
+                app:iconGravity="textStart"
+                app:iconSize="28dp"
+                app:iconTint="@color/white"
                 app:backgroundTint="@color/brand_primary"
-                app:cornerRadius="18dp" />
+                app:cornerRadius="28dp"
+                app:elevation="6dp" />
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="20dp"
-                app:cardCornerRadius="18dp"
-                app:cardElevation="0dp"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="2dp"
                 app:strokeColor="@color/card_stroke"
-                app:strokeWidth="1dp">
+                app:strokeWidth="0dp">
 
                 <LinearLayout
                     android:id="@+id/clipIndicatorContainer"
@@ -127,31 +140,37 @@
                     android:orientation="horizontal"
                     android:padding="20dp">
 
+                    <ImageView
+                        android:id="@+id/ivClipIcon"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_marginEnd="12dp"
+                        android:src="@drawable/ic_check_circle"
+                        android:tint="@color/clip_indicator_idle"
+                        android:contentDescription="@string/no_clipping_detected" />
+
                     <TextView
                         android:id="@+id/tvClipIndicator"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:background="@drawable/clip_indicator_background"
-                        android:gravity="center_vertical"
-                        android:paddingHorizontal="16dp"
-                        android:paddingVertical="12dp"
                         android:text="@string/no_clipping_detected"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/brand_on_primary" />
+                        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+                        android:textColor="@color/brand_on_surface"
+                        android:textStyle="bold" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnResetClip"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="16dp"
                         android:text="@string/reset_clip"
                         android:textAllCaps="false"
-                        android:textColor="@color/brand_on_surface"
-                        app:backgroundTint="@android:color/transparent"
+                        android:textColor="@color/brand_primary"
                         app:cornerRadius="18dp"
-                        app:strokeColor="@color/brand_outline"
-                        app:strokeWidth="1dp" />
+                        app:strokeColor="@color/brand_primary"
+                        app:strokeWidth="2dp" />
 
                 </LinearLayout>
 
@@ -161,10 +180,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="20dp"
-                app:cardCornerRadius="18dp"
-                app:cardElevation="0dp"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="2dp"
                 app:strokeColor="@color/card_stroke"
-                app:strokeWidth="1dp">
+                app:strokeWidth="0dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -172,19 +191,43 @@
                     android:orientation="vertical"
                     android:padding="20dp">
 
-                    <TextView
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="8dp"
-                        android:text="@string/usb_connection_title"
-                        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                        android:textColor="@color/brand_on_surface" />
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:layout_marginEnd="12dp"
+                            android:src="@drawable/ic_usb"
+                            android:tint="@color/brand_primary"
+                            android:contentDescription="@string/usb_connection_title" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/usb_connection_title"
+                            android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                            android:textColor="@color/brand_on_surface"
+                            android:textStyle="bold" />
+
+                    </LinearLayout>
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
+
+                        <View
+                            android:id="@+id/connectionStatusBadge"
+                            android:layout_width="10dp"
+                            android:layout_height="10dp"
+                            android:layout_marginEnd="10dp"
+                            android:background="@drawable/status_badge_disconnected" />
 
                         <TextView
                             android:id="@+id/tvConnectionStatus"
@@ -197,11 +240,12 @@
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnRefreshDevices"
+                            style="@style/Widget.Material3.Button.TonalButton"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/refresh_devices"
                             android:textAllCaps="false"
-                            android:textColor="@color/brand_on_secondary_container"
+                            android:textColor="@color/brand_primary"
                             app:backgroundTint="@color/brand_secondary_container"
                             app:cornerRadius="18dp" />
 
@@ -215,10 +259,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="20dp"
-                app:cardCornerRadius="18dp"
-                app:cardElevation="0dp"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="2dp"
                 app:strokeColor="@color/card_stroke"
-                app:strokeWidth="1dp">
+                app:strokeWidth="0dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -234,6 +278,14 @@
                         android:orientation="horizontal"
                         android:layout_marginBottom="16dp">
 
+                        <ImageView
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="12dp"
+                            android:src="@drawable/ic_levels"
+                            android:tint="@color/brand_primary"
+                            android:contentDescription="@string/sample_rate_title" />
+
                         <TextView
                             android:id="@+id/tvSampleRateLabel"
                             android:layout_width="0dp"
@@ -241,7 +293,8 @@
                             android:layout_weight="1"
                             android:text="@string/sample_rate_title"
                             android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                            android:textColor="@color/brand_on_surface" />
+                            android:textColor="@color/brand_on_surface"
+                            android:textStyle="bold" />
 
                         <Spinner
                             android:id="@+id/spinnerSampleRate"
@@ -285,10 +338,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="20dp"
-                app:cardCornerRadius="18dp"
-                app:cardElevation="0dp"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="2dp"
                 app:strokeColor="@color/card_stroke"
-                app:strokeWidth="1dp">
+                app:strokeWidth="0dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -296,49 +349,76 @@
                     android:orientation="vertical"
                     android:padding="20dp">
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="8dp"
-                        android:text="@string/recording_configuration_title"
-                        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                        android:textColor="@color/brand_on_surface" />
-
-                    <TextView
-                        android:id="@+id/tvChannelInfo"
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="• 84 Channels"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/brand_on_surface_variant"
-                        android:layout_marginBottom="4dp" />
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="16dp"
+                        android:orientation="horizontal">
 
-                    <TextView
-                        android:id="@+id/tvSampleRateInfo"
+                        <ImageView
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="12dp"
+                            android:src="@drawable/ic_microphone"
+                            android:tint="@color/brand_primary"
+                            android:contentDescription="@string/recording_configuration_title" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/recording_configuration_title"
+                            android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                            android:textColor="@color/brand_on_surface"
+                            android:textStyle="bold" />
+
+                    </LinearLayout>
+
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="• 48 kHz Sample Rate"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/brand_on_surface_variant"
-                        android:layout_marginBottom="4dp" />
+                        android:orientation="vertical"
+                        android:background="@color/brand_surface_variant"
+                        android:padding="16dp"
+                        android:layout_marginTop="4dp">
 
-                    <TextView
-                        android:id="@+id/tvBitDepthInfo"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="• 24-bit Depth"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/brand_on_surface_variant"
-                        android:layout_marginBottom="4dp" />
+                        <TextView
+                            android:id="@+id/tvChannelInfo"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="• 84 Channels"
+                            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                            android:textColor="@color/brand_on_surface"
+                            android:layout_marginBottom="8dp" />
 
-                    <TextView
-                        android:id="@+id/tvFormatInfo"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="• Uncompressed WAV Format"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/brand_on_surface_variant"
-                        android:layout_marginBottom="4dp" />
+                        <TextView
+                            android:id="@+id/tvSampleRateInfo"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="• 48 kHz Sample Rate"
+                            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                            android:textColor="@color/brand_on_surface"
+                            android:layout_marginBottom="8dp" />
+
+                        <TextView
+                            android:id="@+id/tvBitDepthInfo"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="• 24-bit Depth"
+                            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                            android:textColor="@color/brand_on_surface"
+                            android:layout_marginBottom="8dp" />
+
+                        <TextView
+                            android:id="@+id/tvFormatInfo"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="• Uncompressed WAV Format"
+                            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                            android:textColor="@color/brand_on_surface"
+                            android:layout_marginBottom="0dp" />
+
+                    </LinearLayout>
 
                 </LinearLayout>
 

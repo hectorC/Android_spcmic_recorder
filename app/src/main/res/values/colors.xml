@@ -9,25 +9,57 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
-    <!-- Light theme palette -->
-    <color name="brand_primary">#006A5B</color>
+    <!-- SPCMic Brand Palette - Inspired by logo gradient -->
+    <color name="brand_primary">#7C3AED</color> <!-- Vibrant purple -->
+    <color name="brand_primary_dark">#6D28D9</color>
+    <color name="brand_primary_light">#A78BFA</color>
     <color name="brand_on_primary">#FFFFFF</color>
-    <color name="brand_secondary">#2A9D8F</color>
-    <color name="brand_on_secondary">#001F18</color>
-    <color name="brand_surface">#F4F6F8</color>
-    <color name="brand_on_surface">#12161A</color>
-    <color name="brand_surface_variant">#E0E6EA</color>
-    <color name="brand_on_surface_variant">#35404A</color>
-    <color name="brand_background">#E9EDF0</color>
-    <color name="brand_on_background">#111417</color>
-    <color name="brand_outline">#B2BCC4</color>
-    <color name="brand_secondary_container">#C2F3E7</color>
-    <color name="brand_on_secondary_container">#04201A</color>
+    
+    <color name="brand_secondary">#EC4899</color> <!-- Magenta/Pink accent -->
+    <color name="brand_secondary_light">#F472B6</color>
+    <color name="brand_on_secondary">#FFFFFF</color>
+    
+    <color name="brand_surface">#FAFAFA</color>
+    <color name="brand_on_surface">#1F1F1F</color>
+    <color name="brand_surface_variant">#F3F4F6</color>
+    <color name="brand_on_surface_variant">#4B5563</color>
+    
+    <color name="brand_background">#F9F5FF</color> <!-- Soft purple tint -->
+    <color name="brand_on_background">#111827</color>
+    <color name="brand_outline">#D1D5DB</color>
+    
+    <!-- Background gradient colors -->
+    <color name="background_gradient_top">#FAF5FF</color> <!-- Very light purple -->
+    <color name="background_gradient_bottom">#F3E8FF</color> <!-- Slightly deeper purple tint -->
+    
+    <color name="brand_secondary_container">#FAE8FF</color> <!-- Light purple container -->
+    <color name="brand_on_secondary_container">#581C87</color>
+    
+    <!-- Gradient colors for backgrounds -->
+    <color name="gradient_purple_start">#6366F1</color> <!-- Indigo -->
+    <color name="gradient_purple_mid">#8B5CF6</color> <!-- Purple -->
+    <color name="gradient_purple_end">#D946EF</color> <!-- Fuchsia -->
+    <color name="gradient_overlay">#1A000000</color> <!-- 10% black overlay -->
 
     <!-- UI accents -->
-    <color name="clip_indicator_idle">#227A5C</color>
-    <color name="clip_indicator_alert">#D32F2F</color>
+    <color name="clip_indicator_idle">#10B981</color> <!-- Emerald green -->
+    <color name="clip_indicator_alert">#EF4444</color> <!-- Bright red -->
     <color name="card_surface">#FFFFFF</color>
-    <color name="card_stroke">#CFD5DA</color>
-    <color name="timecode_recording">#C62828</color>
+    <color name="card_stroke">#E5E7EB</color>
+    <color name="timecode_recording">#DC2626</color>
+    <color name="timecode_idle">#6B7280</color>
+    
+    <!-- Status colors -->
+    <color name="status_connected">#10B981</color> <!-- Green -->
+    <color name="status_disconnected">#6B7280</color> <!-- Gray -->
+    <color name="status_recording">#EF4444</color> <!-- Red -->
+    
+    <!-- Button states -->
+    <color name="button_recording">#DC2626</color>
+    <color name="button_recording_pressed">#B91C1C</color>
+    
+    <!-- Semi-transparent overlays -->
+    <color name="purple_overlay_10">#1A7C3AED</color>
+    <color name="purple_overlay_20">#337C3AED</color>
+    <color name="recording_pulse">#40EF4444</color>
 </resources>

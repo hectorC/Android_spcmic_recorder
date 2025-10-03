@@ -9,6 +9,7 @@ import android.hardware.usb.UsbManager
 import android.os.Bundle
 import android.util.Log
 import android.view.View
+import android.view.animation.AnimationUtils
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
@@ -18,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.lifecycle.ViewModelProvider
 import android.view.WindowManager
+import com.google.android.material.card.MaterialCardView
 import com.spcmic.recorder.databinding.ActivityMainBinding
 import java.util.Locale
 
@@ -31,6 +33,8 @@ class MainActivity : AppCompatActivity() {
     private var suppressSampleRateCallback = false
     private var currentSupportedSampleRates: List<Int> = emptyList()
     private var lastSuccessfulSampleRate = 48000
+    private var recordingPulseAnimation: android.view.animation.Animation? = null
+    private var clipWarningAnimation: android.view.animation.Animation? = null
     
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -184,8 +188,21 @@ class MainActivity : AppCompatActivity() {
         viewModel.isRecording.observe(this) { isRecording ->
             binding.btnRecord.text = if (isRecording) getString(R.string.record_button_stop) else getString(R.string.record_button_start)
             binding.btnRecord.isEnabled = viewModel.isUSBDeviceConnected.value == true
+            
+            // Update timer color and card appearance
             val colorRes = if (isRecording) R.color.timecode_recording else R.color.brand_on_surface
             binding.tvRecordingTime.setTextColor(ContextCompat.getColor(this, colorRes))
+            
+            // Update button icon
+            val iconRes = if (isRecording) R.drawable.ic_stop else R.drawable.ic_microphone
+            binding.btnRecord.setIconResource(iconRes)
+            
+            // Apply recording animations
+            if (isRecording) {
+                startRecordingAnimations()
+            } else {
+                stopRecordingAnimations()
+            }
         }
         
         viewModel.isUSBDeviceConnected.observe(this) { isConnected ->
@@ -196,6 +213,10 @@ class MainActivity : AppCompatActivity() {
             }
             binding.btnRecord.isEnabled = isConnected && !viewModel.isRecording.value!!
             binding.spinnerSampleRate.isEnabled = isConnected && currentSupportedSampleRates.isNotEmpty()
+            
+            // Update connection status badge
+            val badgeRes = if (isConnected) R.drawable.status_badge_connected else R.drawable.status_badge_disconnected
+            binding.connectionStatusBadge.setBackgroundResource(badgeRes)
         }
         
         viewModel.recordingTime.observe(this) { time ->
@@ -212,6 +233,13 @@ class MainActivity : AppCompatActivity() {
 
         viewModel.isClipping.observe(this) { isClipping ->
             updateClipIndicator(isClipping)
+            
+            // Start pulsing animation for clip warning
+            if (isClipping) {
+                startClipWarningAnimation()
+            } else {
+                stopClipWarningAnimation()
+            }
         }
 
         viewModel.supportedSampleRates.observe(this) { rates ->
@@ -378,9 +406,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateClipIndicator(isClipping: Boolean) {
         val indicator = binding.tvClipIndicator
+        val icon = binding.ivClipIcon
         val colorRes = if (isClipping) R.color.clip_indicator_alert else R.color.clip_indicator_idle
-        val tint = ColorStateList.valueOf(ContextCompat.getColor(this, colorRes))
-        ViewCompat.setBackgroundTintList(indicator, tint)
+        val iconRes = if (isClipping) R.drawable.ic_warning else R.drawable.ic_check_circle
+        
+        icon.setImageResource(iconRes)
+        icon.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, colorRes))
         indicator.text = if (isClipping) getString(R.string.clipping_detected) else getString(R.string.no_clipping_detected)
     }
 
@@ -395,6 +426,42 @@ class MainActivity : AppCompatActivity() {
         val minutes = (seconds % 3600) / 60
         val secs = seconds % 60
         return String.format("%02d:%02d:%02d", hours, minutes, secs)
+    }
+    
+    private fun startRecordingAnimations() {
+        // Pulse the record button
+        if (recordingPulseAnimation == null) {
+            recordingPulseAnimation = AnimationUtils.loadAnimation(this, R.anim.pulse_recording)
+        }
+        binding.btnRecord.startAnimation(recordingPulseAnimation)
+        
+        // Update timer card to recording style
+        val timerCard = binding.timerCard
+        timerCard.setCardBackgroundColor(ContextCompat.getColor(this, R.color.card_surface))
+        timerCard.cardElevation = resources.getDimension(R.dimen.card_elevation_recording)
+        timerCard.strokeWidth = 0
+    }
+    
+    private fun stopRecordingAnimations() {
+        // Stop button pulse
+        binding.btnRecord.clearAnimation()
+        
+        // Reset timer card to idle style
+        val timerCard = binding.timerCard
+        timerCard.setCardBackgroundColor(ContextCompat.getColor(this, R.color.card_surface))
+        timerCard.cardElevation = resources.getDimension(R.dimen.card_elevation)
+        timerCard.strokeWidth = resources.getDimensionPixelSize(R.dimen.spacing_xs) / 4
+    }
+    
+    private fun startClipWarningAnimation() {
+        if (clipWarningAnimation == null) {
+            clipWarningAnimation = AnimationUtils.loadAnimation(this, R.anim.pulse_clip_warning)
+        }
+        binding.ivClipIcon.startAnimation(clipWarningAnimation)
+    }
+    
+    private fun stopClipWarningAnimation() {
+        binding.ivClipIcon.clearAnimation()
     }
     
     override fun onDestroy() {
