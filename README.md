@@ -1,11 +1,11 @@
-# SPCMic 84-Channel Audio Recorder
+# spcmic 84-Channel Audio Recorder
 
-An Android application for capturing the full 84-channel output of the SPCMic array over USB-C and saving it as 24-bit multichannel WAV files. The app now includes adaptive sample-rate selection and a clipping indicator to simplify field use.
+An Android application for capturing the full 84-channel output of the spcmic array over USB-C and saving it as 24-bit multichannel WAV files. The app now includes adaptive sample-rate selection and a clipping indicator to simplify field use.
 
 ## Features
 
-- **84-Channel Recording** – Streams and stores every channel from the SPCMic array with deterministic channel order.
-- **Sample-Rate Picker** – UI exposes the discrete or continuous rates reported by the connected device (e.g., 48 kHz and 96 kHz for SPCMic). Requests are negotiated through the USB clock source.
+- **84-Channel Recording** – Streams and stores every channel from the spcmic array with deterministic channel order.
+- **Sample-Rate Picker** – UI exposes the discrete or continuous rates reported by the connected device (e.g., 48 kHz and 96 kHz for spcmic). Requests are negotiated through the USB clock source.
 - **24-bit Uncompressed WAV** – Files are written with the negotiated rate, 24-bit samples, and 84 interleaved channels.
 - **Clipping Indicator** – Latched “Clip” pill lights up if any channel hits 0 dBFS during the take; tap Reset to clear.
 - **USB-C / UAC2 Support** – Communicates directly with UAC-compliant hardware without Android’s AudioRecord pipeline.
@@ -13,18 +13,18 @@ An Android application for capturing the full 84-channel output of the SPCMic ar
 
 ## Technical Specifications
 
-- **Sample Rates**: Any discrete/continuous rates advertised by the device (SPCMic exposes 48 kHz & 96 kHz; additional rates may appear after future firmware updates).
+- **Sample Rates**: Any discrete/continuous rates advertised by the device (spcmic exposes 48 kHz & 96 kHz; additional rates may appear after future firmware updates).
 - **Bit Depth**: 24-bit PCM
 - **Channels**: 84 interleaved
 - **Container**: RIFF/WAV with full channel count metadata
-- **Connection**: USB Audio Class 2 (tested with SPCMic via USB-C OTG)
+- **Connection**: USB Audio Class 2 (tested with spcmic via USB-C OTG)
 - **Minimum Android Version**: API 29 (Android 10)
 
 ## Requirements
 
 ### Hardware
 - Android device with USB-C port and USB Host support
-- SPCMic 84-channel microphone array
+- spcmic 84-channel microphone array
 - USB-C OTG / host-capable cable
 - High-speed storage (24-bit/48kHz/84ch ≈ 1 GB/minute)
 
@@ -42,7 +42,7 @@ An Android application for capturing the full 84-channel output of the SPCMic ar
 
 ## Usage
 
-1. **Connect the SPCMic** – Plug the array into the Android device via USB-C. Use the on-screen *Reconnect* button if Android races you to the claim.
+1. **Connect the spcmic** – Plug the array into the Android device via USB-C. Use the on-screen *Reconnect* button if Android races you to the claim.
 2. **Launch the App** – “USB Audio Device Connected” confirms we hold the interface.
 3. **Select Sample Rate** – Use the spinner to choose from the supported rates. The UI also shows the device-reported rate after negotiation.
 4. **Check Clip Status** – The clipping pill starts green (“No clipping detected”). It latches red if any channel hits full-scale.
@@ -54,7 +54,7 @@ An Android application for capturing the full 84-channel output of the SPCMic ar
 
 Recorded files are saved to:
 ```
-/storage/emulated/0/Documents/SPCMicRecorder/
+/storage/emulated/0/Documents/spcmicRecorder/
 ```
 
 Files are named with timestamp format:
@@ -118,7 +118,7 @@ The app requires the following permissions:
 
 **USB Device Not Detected**
 - Verify your Android device supports USB Host/OTG.
-- Confirm the SPCMic is receiving power and enumerates on other hosts.
+- Confirm the spcmic is receiving power and enumerates on other hosts.
 - Tap the **Reconnect** button to reclaim interfaces if Android Audio captures them first.
 
 **Sample Rate Change Rejected**
@@ -143,5 +143,5 @@ The app requires the following permissions:
 
 ## Support
 
-For technical support or questions about the SPCMic hardware, please contact:
+For technical support or questions about the spcmic hardware, please contact:
 [Add contact information]
