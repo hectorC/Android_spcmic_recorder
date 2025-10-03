@@ -418,7 +418,18 @@ class MainActivity : AppCompatActivity() {
     private fun formatSampleRate(rate: Int?): String {
         val value = rate ?: return "Unknown"
         if (value <= 0) return "Unknown"
-        return String.format(Locale.getDefault(), "%,d Hz", value)
+        
+        // Convert to kHz for cleaner display
+        val kHz = value / 1000.0
+        
+        // Format with appropriate decimal places
+        return if (kHz == kHz.toInt().toDouble()) {
+            // Whole number (e.g., 48.0 -> "48 kHz")
+            String.format(Locale.getDefault(), "%d kHz", kHz.toInt())
+        } else {
+            // Has decimals (e.g., 44.1 -> "44.1 kHz")
+            String.format(Locale.getDefault(), "%.1f kHz", kHz)
+        }
     }
     
     private fun formatTime(seconds: Long): String {
