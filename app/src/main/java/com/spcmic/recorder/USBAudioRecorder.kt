@@ -247,8 +247,11 @@ class USBAudioRecorder(
                 viewModel.setRecordingFileName(outputFile.name)
                 android.util.Log.i("USBAudioRecorder", "Started recording to: ${outputFile.absolutePath}")
                 
-                // Start recording monitoring job
+                // Start recording monitoring job with high priority
                 recordingJob = CoroutineScope(Dispatchers.IO).launch {
+                    // Set thread priority to URGENT_AUDIO for real-time performance
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+                    android.util.Log.i("USBAudioRecorder", "Set recording thread priority to URGENT_AUDIO")
                     monitorRecording()
                 }
             } else {

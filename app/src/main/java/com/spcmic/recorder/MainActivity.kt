@@ -1,11 +1,13 @@
 package com.spcmic.recorder
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -58,6 +60,7 @@ class MainActivity : AppCompatActivity() {
         
         setupUI()
         checkPermissions()
+        checkBatteryOptimization()
         observeViewModel()
         
         // Handle USB device attachment if app was launched by USB intent
@@ -294,6 +297,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
+    private fun checkBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            val packageName = packageName
+            
+            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                android.util.Log.i("MainActivity", "Battery optimization enabled - requesting exemption for better audio performance")
+                
+                // Show an informative dialog before requesting
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Battery Optimization")
+                    .setMessage("For best audio recording performance, please disable battery optimization for this app. This ensures uninterrupted recording of 84-channel audio.")
+                    .setPositiveButton("Allow") { _, _ ->
+                        try {
+                            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = android.net.Uri.parse("package:$packageName")
+                            }
+                            startActivity(intent)
+                        } catch (e: Exception) {
+                            android.util.Log.e("MainActivity", "Failed to request battery optimization exemption", e)
+                        }
+                    }
+                    .setNegativeButton("Skip", null)
+                    .show()
+            } else {
+                android.util.Log.i("MainActivity", "Battery optimization already disabled - good for audio performance")
+            }
+        }
+    }
+    
     private fun initializeAudioRecorder() {
         audioRecorder = USBAudioRecorder(this, viewModel)
         // Don't auto-connect - wait for explicit USB device attachment or user action
@@ -354,6 +387,10 @@ class MainActivity : AppCompatActivity() {
         if (audioRecorder.startRecording()) {
             viewModel.startRecording()
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            
+            // Start foreground service for high-priority recording
+            AudioRecordingService.startRecordingService(this)
+            android.util.Log.i("MainActivity", "Started foreground service for high-priority recording")
         } else {
             Toast.makeText(this, "Failed to start recording", Toast.LENGTH_SHORT).show()
         }
@@ -363,6 +400,10 @@ class MainActivity : AppCompatActivity() {
         audioRecorder.stopRecording()
         viewModel.stopRecording()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        
+        // Stop foreground service
+        AudioRecordingService.stopRecordingService(this)
+        android.util.Log.i("MainActivity", "Stopped foreground service")
     }
 
     private fun updateSampleRateSpinnerSelection() {
