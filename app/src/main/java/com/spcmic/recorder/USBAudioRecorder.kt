@@ -185,6 +185,15 @@ class USBAudioRecorder(
             
             // Sync UI spinner to match device's actual state
             refreshSampleRateCapabilities(actualDeviceRate, syncUiToDevice = true)
+            
+            // Set device to default 48 kHz if not already at that rate
+            if (actualDeviceRate != 48000) {
+                android.util.Log.i("USBAudioRecorder", "Changing device from $actualDeviceRate Hz to default 48 kHz")
+                onSampleRateSelected(48000)
+            } else {
+                android.util.Log.i("USBAudioRecorder", "Device already at desired default 48 kHz")
+            }
+            
             viewModel.clearClipping()
             resetClipIndicatorNative()
             // TEMPORARILY DISABLED: Level monitoring disabled to focus on clean recording

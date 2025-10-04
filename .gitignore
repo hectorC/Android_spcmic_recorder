@@ -89,3 +89,6 @@ node_modules/
 
 # Python
 __pycache__/
+CRITICAL_FIX_EXPLANATION.md
+debug_log.txt
+TESTING_GUIDE.md
