@@ -1,24 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Dark theme palette -->
-    <color name="brand_primary">#00C8A5</color>
-    <color name="brand_on_primary">#002922</color>
-    <color name="brand_secondary">#3EB5E1</color>
-    <color name="brand_on_secondary">#001B28</color>
-    <color name="brand_surface">#0B0F14</color>
-    <color name="brand_on_surface">#E2E8EE</color>
-    <color name="brand_surface_variant">#151B22</color>
-    <color name="brand_on_surface_variant">#BBC5CF</color>
-    <color name="brand_background">#070A0F</color>
-    <color name="brand_on_background">#E2E8EE</color>
-    <color name="brand_outline">#404952</color>
-    <color name="brand_secondary_container">#114C44</color>
-    <color name="brand_on_secondary_container">#CEFFF0</color>
+    <!-- Dark theme palette - Purple theme for dark mode -->
+    <color name="brand_primary">#A78BFA</color>           <!-- Lighter purple for dark backgrounds -->
+    <color name="brand_on_primary">#1E1B4B</color>        <!-- Dark indigo text on purple -->
+    <color name="brand_secondary">#F0ABFC</color>         <!-- Light fuchsia for dark mode -->
+    <color name="brand_on_secondary">#4A044E</color>      <!-- Dark text on fuchsia -->
+    <color name="brand_surface">#1C1B1F</color>           <!-- Dark surface (Material 3 standard) -->
+    <color name="brand_on_surface">#E6E1E5</color>        <!-- Light text on dark surface -->
+    <color name="brand_surface_variant">#2B2930</color>   <!-- Slightly lighter surface variant -->
+    <color name="brand_on_surface_variant">#CAC4D0</color> <!-- Light gray text -->
+    <color name="brand_background">#141218</color>        <!-- Very dark background -->
+    <color name="brand_on_background">#E6E1E5</color>     <!-- Light text on dark bg -->
+    <color name="brand_outline">#49454F</color>           <!-- Subtle outlines -->
+    <color name="brand_secondary_container">#4A044E</color> <!-- Dark fuchsia container -->
+    <color name="brand_on_secondary_container">#F0ABFC</color> <!-- Light fuchsia text -->
 
-    <!-- UI accents -->
-    <color name="clip_indicator_idle">#29C58C</color>
-    <color name="clip_indicator_alert">#FF5555</color>
-    <color name="card_surface">#121820</color>
-    <color name="card_stroke">#27313B</color>
-    <color name="timecode_recording">#FF6666</color>
+    <!-- UI accents for dark mode -->
+    <color name="clip_indicator_idle">#34D399</color>    <!-- Emerald green (visible on dark) -->
+    <color name="clip_indicator_alert">#EF4444</color>   <!-- Bright red (visible on dark) -->
+    <color name="card_surface">#28252E</color>            <!-- Dark card surface -->
+    <color name="card_stroke">#3E3A44</color>             <!-- Subtle card border -->
+    <color name="timecode_recording">#F87171</color>      <!-- Bright red for recording -->
+    
+    <!-- Background gradient colors for dark mode -->
+    <color name="background_gradient_top">#0F0D15</color>      <!-- Very dark purple-tinted black -->
+    <color name="background_gradient_bottom">#1A1625</color>   <!-- Slightly lighter dark purple -->
+    
+    <!-- Gradient colors for dark mode backgrounds -->
+    <color name="gradient_start">#1E1B4B</color>          <!-- Dark indigo -->
+    <color name="gradient_middle">#312E81</color>         <!-- Medium indigo -->
+    <color name="gradient_end">#4C1D95</color>            <!-- Dark purple -->
+    
+    <!-- Status colors for dark mode -->
+    <color name="status_connected">#34D399</color>        <!-- Bright emerald -->
+    <color name="status_disconnected">#6B7280</color>     <!-- Gray -->
+    <color name="status_recording">#EF4444</color>        <!-- Bright red -->
+    <color name="status_clipping">#F59E0B</color>         <!-- Amber warning -->
 </resources>
