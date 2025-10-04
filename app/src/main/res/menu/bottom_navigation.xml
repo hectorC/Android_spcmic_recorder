@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/navigation_record"
+        android:icon="@drawable/ic_microphone"
+        android:title="Record" />
+    <item
+        android:id="@+id/navigation_playback"
+        android:icon="@drawable/ic_headphones"
+        android:title="Playback" />
+</menu>

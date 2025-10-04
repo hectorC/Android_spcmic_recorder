@@ -29,8 +29,8 @@
     <color name="brand_outline">#D1D5DB</color>
     
     <!-- Background gradient colors -->
-    <color name="background_gradient_top">#FAF5FF</color> <!-- Very light purple -->
-    <color name="background_gradient_bottom">#F3E8FF</color> <!-- Slightly deeper purple tint -->
+    <color name="background_gradient_top">#0F0D15</color> <!-- Dark purple-black -->
+    <color name="background_gradient_bottom">#1A1625</color> <!-- Slightly lighter dark purple -->
     
     <color name="brand_secondary_container">#FAE8FF</color> <!-- Light purple container -->
     <color name="brand_on_secondary_container">#581C87</color>
