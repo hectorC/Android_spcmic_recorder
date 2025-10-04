@@ -49,6 +49,7 @@ fabric.properties
 # NDK
 obj/
 .externalNativeBuild/
+.cxx/
 
 # Gradle Wrapper
 .gradle/

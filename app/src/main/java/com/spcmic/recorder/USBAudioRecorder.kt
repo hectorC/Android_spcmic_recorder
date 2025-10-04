@@ -71,6 +71,7 @@ class USBAudioRecorder(
     external fun getContinuousSampleRateRangeNative(): IntArray?
     external fun getEffectiveSampleRateNative(): Int
     external fun setTargetSampleRateNative(sampleRate: Int): Boolean
+    external fun setInterfaceNative(interfaceNum: Int, altSetting: Int): Boolean
     external fun hasClippedNative(): Boolean
     external fun resetClipIndicatorNative()
     
@@ -168,14 +169,22 @@ class USBAudioRecorder(
         val deviceFd = usbConnection!!.fileDescriptor
         android.util.Log.i("USBAudioRecorder", "USB device FD: $deviceFd")
 
-        targetSampleRate = viewModel.selectedSampleRate.value ?: targetSampleRate
-
-        // Initialize native audio interface
-        val success = initializeNativeAudio(deviceFd, targetSampleRate, channelCount)
+        // Initialize native USB connection (does NOT set sample rate - device uses hardware default)
+        // We pass a sampleRate parameter but the native code just stores it for later use
+        val success = initializeNativeAudio(deviceFd, 48000, channelCount)
         if (success) {
             isNativeInitialized = true
             android.util.Log.i("USBAudioRecorder", "Native audio initialized: ${stringFromJNI()}")
-            refreshSampleRateCapabilities(targetSampleRate)
+            
+            // Small delay to let device stabilize
+            Thread.sleep(200)
+            
+            // Query what sample rate the device is ACTUALLY running at (hardware default)
+            val actualDeviceRate = getEffectiveSampleRateNative()
+            android.util.Log.i("USBAudioRecorder", "Device initialized at hardware default: $actualDeviceRate Hz")
+            
+            // Sync UI spinner to match device's actual state
+            refreshSampleRateCapabilities(actualDeviceRate, syncUiToDevice = true)
             viewModel.clearClipping()
             resetClipIndicatorNative()
             // TEMPORARILY DISABLED: Level monitoring disabled to focus on clean recording
@@ -257,7 +266,7 @@ class USBAudioRecorder(
         }
     }
 
-    private fun refreshSampleRateCapabilities(requestedSampleRate: Int) {
+    private fun refreshSampleRateCapabilities(requestedSampleRate: Int, syncUiToDevice: Boolean = false) {
         if (!isNativeInitialized) {
             viewModel.updateSampleRateOptions(emptyList(), false, null, requestedSampleRate, requestedSampleRate)
             return
@@ -292,23 +301,18 @@ class USBAudioRecorder(
 
         viewModel.updateSampleRateOptions(ratesForUi, continuousSupported, continuousRange, requestedSampleRate, negotiated)
 
-        val desiredSelection = viewModel.selectedSampleRate.value ?: requestedSampleRate
-        targetSampleRate = desiredSelection
-
-        if (desiredSelection != negotiated) {
-            val applied = setTargetSampleRateNative(desiredSelection)
-            if (applied) {
-                val refreshedNegotiated = getEffectiveSampleRateNative().takeIf { it > 0 } ?: desiredSelection
-                viewModel.setNegotiatedSampleRate(refreshedNegotiated)
-            } else {
-                android.util.Log.w("USBAudioRecorder", "Device rejected sample rate ${desiredSelection} Hz; reverting to ${negotiated} Hz")
-                viewModel.setSelectedSampleRate(negotiated)
-                viewModel.setNegotiatedSampleRate(negotiated)
-                targetSampleRate = negotiated
-            }
+        if (syncUiToDevice) {
+            // Sync UI spinner to match device's actual sample rate (on initial connection/reconnect)
+            android.util.Log.i("USBAudioRecorder", "Device reports sample rate: $negotiated Hz - syncing UI spinner")
+            viewModel.setSelectedSampleRate(negotiated)
+            targetSampleRate = negotiated
         } else {
-            viewModel.setNegotiatedSampleRate(negotiated)
+            // User-initiated change: respect the requested rate but show what device actually reports
+            android.util.Log.i("USBAudioRecorder", "User requested: $requestedSampleRate Hz, Device reports: $negotiated Hz")
+            targetSampleRate = requestedSampleRate
         }
+        
+        viewModel.setNegotiatedSampleRate(negotiated)
     }
     
     private fun startLevelMonitoring() {
@@ -351,24 +355,72 @@ class USBAudioRecorder(
     }
 
     fun onSampleRateSelected(rate: Int): Boolean {
+        android.util.Log.i("USBAudioRecorder", "=== onSampleRateSelected($rate Hz) START ===")
         targetSampleRate = rate
 
         if (!isNativeInitialized) {
+            android.util.Log.w("USBAudioRecorder", "Native audio not initialized, just updating UI")
             viewModel.setSelectedSampleRate(rate)
             return false
         }
 
-        val applied = setTargetSampleRateNative(rate)
-        if (applied) {
+        // Log current state before any changes
+        val rateBefore = getEffectiveSampleRateNative()
+        android.util.Log.i("USBAudioRecorder", "Current device sample rate BEFORE change: $rateBefore Hz")
+        android.util.Log.i("USBAudioRecorder", "Requested sample rate: $rate Hz")
+
+        // Follow Linux USB audio driver pattern:
+        // 1. Set interface to alt 0 (disable streaming)
+        // 2. Configure sample rate
+        // 3. Set interface back to alt 1 (enable streaming)
+        
+        android.util.Log.i("USBAudioRecorder", "Step 1: Disabling streaming interface (alt 0)")
+        val disableSuccess = setInterfaceNative(3, 0)
+        if (!disableSuccess) {
+            android.util.Log.e("USBAudioRecorder", "Failed to set interface to alt 0")
+        }
+        Thread.sleep(50)  // Brief delay for interface to settle
+
+        android.util.Log.i("USBAudioRecorder", "Step 2: Requesting sample rate change to $rate Hz")
+        val rateSetSuccess = setTargetSampleRateNative(rate)
+        android.util.Log.i("USBAudioRecorder", "setTargetSampleRateNative($rate) returned: $rateSetSuccess")
+        
+        Thread.sleep(100)  // Give device time to reconfigure clock
+
+        // Verify the change took effect
+        val rateAfterSet = getEffectiveSampleRateNative()
+        android.util.Log.i("USBAudioRecorder", "Device reports sample rate AFTER setTargetSampleRate: $rateAfterSet Hz")
+
+        android.util.Log.i("USBAudioRecorder", "Step 3: Re-enabling streaming interface (alt 1)")
+        val enableSuccess = setInterfaceNative(3, 1)
+        if (!enableSuccess) {
+            android.util.Log.e("USBAudioRecorder", "Failed to set interface to alt 1")
+        }
+        Thread.sleep(50)  // Brief delay for interface to settle
+
+        // Final verification
+        val rateFinal = getEffectiveSampleRateNative()
+        android.util.Log.i("USBAudioRecorder", "Device reports sample rate FINAL: $rateFinal Hz")
+
+        // Check if rate change was successful
+        val success = (rateFinal == rate)
+        if (success) {
+            android.util.Log.i("USBAudioRecorder", "✅ Sample rate change SUCCESSFUL: $rateBefore Hz -> $rateFinal Hz")
             viewModel.setSelectedSampleRate(rate)
-            val negotiated = getEffectiveSampleRateNative().takeIf { it > 0 } ?: rate
-            viewModel.setNegotiatedSampleRate(negotiated)
-            refreshSampleRateCapabilities(rate)
-            return true
+            viewModel.setNegotiatedSampleRate(rateFinal)
+            refreshSampleRateCapabilities(rate, syncUiToDevice = false)
+        } else {
+            android.util.Log.w("USBAudioRecorder", "⚠️ Sample rate mismatch: wanted $rate Hz, got $rateFinal Hz")
+            android.util.Log.w("USBAudioRecorder", "   setTargetSampleRateNative returned: $rateSetSuccess")
+            android.util.Log.w("USBAudioRecorder", "   Rate progression: $rateBefore -> $rateAfterSet -> $rateFinal")
+            // Still update UI to show what actually happened
+            viewModel.setSelectedSampleRate(rate)  // Show user's intent
+            viewModel.setNegotiatedSampleRate(rateFinal)  // Show device reality
+            refreshSampleRateCapabilities(rate, syncUiToDevice = false)
         }
 
-        android.util.Log.w("USBAudioRecorder", "Device rejected requested sample rate $rate Hz")
-        return false
+        android.util.Log.i("USBAudioRecorder", "=== onSampleRateSelected COMPLETE ===")
+        return success
     }
     
     fun release() {

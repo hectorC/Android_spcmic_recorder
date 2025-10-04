@@ -294,3 +294,27 @@ Java_com_spcmic_recorder_USBAudioRecorder_setTargetSampleRateNative(
     bool result = g_usbAudioInterface->setTargetSampleRate(static_cast<int>(sampleRate));
     return result ? JNI_TRUE : JNI_FALSE;
 }
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_setInterfaceNative(
+        JNIEnv* env,
+        jobject thiz,
+        jint interfaceNum,
+        jint altSetting) {
+
+    if (!g_usbAudioInterface) {
+        LOGE("Cannot set interface: USB audio interface not initialized");
+        return JNI_FALSE;
+    }
+
+    LOGI("Setting USB interface %d to alt setting %d", interfaceNum, altSetting);
+    bool result = g_usbAudioInterface->setInterface(static_cast<int>(interfaceNum), static_cast<int>(altSetting));
+    
+    if (result) {
+        LOGI("Successfully set interface %d to alt %d", interfaceNum, altSetting);
+    } else {
+        LOGE("Failed to set interface %d to alt %d", interfaceNum, altSetting);
+    }
+    
+    return result ? JNI_TRUE : JNI_FALSE;
+}

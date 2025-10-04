@@ -1661,9 +1661,20 @@ bool USBAudioInterface::setTargetSampleRate(int sampleRate) {
         return false;
     }
 
-    if (m_sampleRate == sampleRate) {
-        LOGI("Sample rate %d Hz already selected", sampleRate);
-        return true;
+    // Query actual device state instead of comparing against stored m_sampleRate
+    // This ensures we always know what the device is REALLY running at
+    uint32_t currentDeviceRate = 0;
+    const char* querySource = nullptr;
+    if (queryCurrentSampleRate(currentDeviceRate, &querySource)) {
+        if (currentDeviceRate == static_cast<uint32_t>(sampleRate)) {
+            LOGI("Device already running at %d Hz (verified via %s)", sampleRate, querySource ? querySource : "unknown");
+            m_sampleRate = sampleRate;  // Sync our stored value to match reality
+            m_effectiveSampleRate = static_cast<double>(sampleRate);
+            return true;
+        }
+        LOGI("Device currently at %u Hz, changing to %d Hz", currentDeviceRate, sampleRate);
+    } else {
+        LOGI("Could not query current device rate; attempting to set %d Hz", sampleRate);
     }
 
     int previousRate = m_sampleRate;

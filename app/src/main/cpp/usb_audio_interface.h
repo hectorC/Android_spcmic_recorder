@@ -37,6 +37,7 @@ public:
     bool configureUACDevice();
     bool setAudioFormat();
     bool enableAudioStreaming();
+    bool setInterface(int interfaceNum, int altSetting);
     
 private:
     int m_deviceFd;
@@ -84,7 +85,6 @@ private:
     // USB control functions
     bool sendControlRequest(uint8_t request, uint16_t value, uint16_t index, 
                            uint8_t* data, uint16_t length);
-    bool setInterface(int interfaceNum, int altSetting);
     bool configureSampleRate(int sampleRate);
     bool configureChannels(int channels);
     bool findAudioEndpoint();
