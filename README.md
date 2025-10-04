@@ -1,6 +1,22 @@
-# spcmic 84-Channel Audio Recorder
+**NOTE (from a human):** Contains AI generated code, and hyperbolic descriptions characteristic of the generative AI models used at the time of development of this app.
 
-NOTE: Contains AI generated code and descriptions.
+# spcm## Features
+
+- **84-Channel Recording** – St## Usage
+
+1. **Connect the spcmic** – Plug the array into the Android device via USB-C. Use the on-screen *Reconnect* button if Android races you to the claim.
+2. **Launch the App** – "USB Audio Device Connected" confirms we hold the interface. The app auto-defaults to 48 kHz sample rate.
+3. **Select Sample Rate** – Use the dropdown spinner to choose from the supported rates (displayed in kHz format). The UI shows both the selected rate and the device-reported rate after negotiation.
+4. **Check Clip Status** – The clipping pill starts green ("No clipping detected"). It latches red if any channel hits full-scale during recording.
+5. **Start Recording** – Tap **Start Recording** to begin capture. The session timer displays elapsed recording time, and the filename appears below.
+6. **Reset Clipping (Optional)** – Tap **Reset** to clear the clip latch during or between takes.
+7. **Stop Recording** – Tap **Stop Recording** to finish and save the WAV file with proper header information. stores every channel from the spcmic array with deterministic channel order.
+- **Sample-Rate Picker** – UI exposes the discrete or continuous rates reported by the connected device (e.g., 48 kHz and 96 kHz for spcmic). Requests are negotiated through the USB clock source. Auto-defaults to 48 kHz on launch.
+- **24-bit Uncompressed WAV** – Files are written with the negotiated rate, 24-bit samples, and 84 interleaved channels.
+- **Clipping Indicator** – Latched "Clip" pill lights up if any channel hits 0 dBFS during the take; tap Reset to clear.
+- **USB-C / UAC2 Support** – Communicates directly with UAC-compliant hardware without Android's AudioRecord pipeline.
+- **Modern Purple UI** – Clean Material Design 3 interface with purple gradient theme, optimized for quick deployment in the field.
+- **Dark Mode Support** – Automatic dark theme with proper purple color palette for low-light environments.annel Audio Recorder
 
 An Android application for capturing the full 84-channel output of the spcmic array over USB-C and saving it as 24-bit multichannel WAV files. The app now includes adaptive sample-rate selection and a clipping indicator to simplify field use.
 
@@ -87,23 +103,26 @@ spcmic_recording_YYYYMMDD_HHMMSS.wav
 
 ### Building from Source
 ```bash
-git clone [repository-url]
+git clone https://github.com/hectorC/Android_spcmic_recorder.git
 cd Android_spcmic_recorder
-./gradlew build
+./gradlew assembleDebug
 ```
 
 ### Key Components
-- `MainActivity.kt`: Main UI and app coordination
-- `USBAudioRecorder.kt`: Core audio recording functionality
-- `LevelMeterView.kt`: Custom view for 84-channel level display
+- `MainActivity.kt`: Main UI and app coordination with purple Material Design 3 theme
+- `USBAudioRecorder.kt`: Core audio recording functionality with auto-48kHz default
+- `LevelMeterView.kt`: Custom view for 84-channel level display (available but not currently visible in UI)
 - `MainViewModel.kt`: App state and data management
-- `native-lib.cpp` / `usb_audio_interface.cpp`: JNI bridge and USB audio engine
+- `native-lib.cpp`: JNI bridge between Kotlin and native C++ code
+- `usb_audio_interface.cpp`: USB audio engine with direct UAC2 communication and sample rate negotiation
 
 ### Architecture
 - **MVVM Pattern**: Clean separation of UI, business logic, and data
 - **Kotlin Coroutines**: Efficient async audio processing
-- **Custom Views**: 84-channel meter (currently hidden by default, can be re-enabled for debugging)
-- **USB Host API**: Direct USB device communication
+- **Material Design 3**: Modern purple gradient theme with dark mode support
+- **Custom Views**: 84-channel meter available but not currently displayed in UI
+- **USB Host API**: Direct USB device communication via JNI/C++ native layer
+- **Native C++**: CMake-based build with USB Audio Class 2 implementation
 
 ## Permissions
 
@@ -125,6 +144,7 @@ The app requires the following permissions:
 
 **Sample Rate Change Rejected**
 - Some hardware exposes different rates on different alternate settings. If a request fails, tap **Reconnect** and retry at a supported rate (the UI shows the negotiated value).
+- The app auto-defaults to 48 kHz on launch, which is the most compatible rate for the spcmic hardware.
 
 **Recording Quality Issues**
 - Check the negotiated rate label; if it differs from your request, reconnect.
