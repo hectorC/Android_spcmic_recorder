@@ -1,5 +1,7 @@
 # spcmic 84-Channel Audio Recorder
 
+NOTE: Contains AI generated code and descriptions.
+
 An Android application for capturing the full 84-channel output of the spcmic array over USB-C and saving it as 24-bit multichannel WAV files. The app now includes adaptive sample-rate selection and a clipping indicator to simplify field use.
 
 ## Features
