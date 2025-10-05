@@ -41,7 +41,10 @@ class MainActivity : AppCompatActivity() {
         }
         
         // Handle USB device attachment if app was launched by USB intent
-        handleUsbIntent(intent)
+        // Defer until fragment is attached
+        binding.root.post {
+            handleUsbIntent(intent)
+        }
     }
     
     override fun onNewIntent(intent: Intent?) {
@@ -51,8 +54,8 @@ class MainActivity : AppCompatActivity() {
     
     private fun handleUsbIntent(intent: Intent) {
         if (UsbManager.ACTION_USB_DEVICE_ATTACHED == intent.action) {
-            // Forward USB intent to RecordFragment if it's visible
-            recordFragment?.handleUsbIntent(intent)
+            // Forward USB intent to RecordFragment if it's attached
+            recordFragment?.takeIf { it.isAdded }?.handleUsbIntent(intent)
         }
     }
     

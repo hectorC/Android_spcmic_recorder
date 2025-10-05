@@ -1,16 +1,19 @@
 package com.spcmic.recorder.playback
 
+import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ArrayAdapter
 import android.widget.PopupMenu
+import android.widget.SeekBar
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.spcmic.recorder.R
 import com.spcmic.recorder.databinding.FragmentPlaybackBinding
+import java.io.File
 
 /**
  * Fragment for playback functionality
@@ -36,6 +39,15 @@ class PlaybackFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         
         viewModel = ViewModelProvider(this)[PlaybackViewModel::class.java]
+    viewModel.setAssetManager(requireContext().assets)
+    val preferences = requireContext().getSharedPreferences(PlaybackViewModel.PREFS_NAME, Context.MODE_PRIVATE)
+        viewModel.setPreferences(preferences)
+
+        val cacheDir = File(requireContext().filesDir, "playback_cache")
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs()
+        }
+        viewModel.setCacheDirectory(cacheDir.absolutePath)
         
         setupRecyclerView()
         setupPlayerControls()
@@ -62,25 +74,39 @@ class PlaybackFragment : Fragment() {
     }
     
     private fun setupPlayerControls() {
-        // Player control buttons (non-functional for now)
+        // Play/Pause button
         binding.playerControls.btnPlayPause.setOnClickListener {
-            // TODO: Implement play/pause in Sprint 2
             val isPlaying = viewModel.isPlaying.value == true
-            viewModel.setPlaying(!isPlaying)
+            if (isPlaying) {
+                viewModel.pause()
+            } else {
+                viewModel.play()
+            }
         }
         
+        // Stop button
         binding.playerControls.btnStop.setOnClickListener {
-            // TODO: Implement stop in Sprint 2
-            viewModel.setPlaying(false)
-            viewModel.updatePosition(0L)
+            viewModel.stopPlayback()
         }
         
+        // Close player
         binding.playerControls.btnClosePlayer.setOnClickListener {
             viewModel.clearSelection()
         }
         
-        // Timeline seekbar (non-functional for now)
-        binding.playerControls.seekBarTimeline.setOnSeekBarChangeListener(null) // TODO: Add in Sprint 2
+        // Timeline seekbar
+        binding.playerControls.seekBarTimeline.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val duration = viewModel.totalDuration.value ?: 0L
+                    val positionMs = (progress / 1000f * duration).toLong()
+                    viewModel.seekTo(positionMs)
+                }
+            }
+            
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
     }
     
     private fun observeViewModel() {
@@ -120,6 +146,13 @@ class PlaybackFragment : Fragment() {
             val iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
             binding.playerControls.btnPlayPause.setImageResource(iconRes)
         }
+
+        viewModel.isPreprocessing.observe(viewLifecycleOwner) { processing ->
+            binding.preprocessOverlay.visibility = if (processing) View.VISIBLE else View.GONE
+            binding.playerControls.btnPlayPause.isEnabled = !processing
+            binding.playerControls.btnStop.isEnabled = !processing
+            binding.playerControls.seekBarTimeline.isEnabled = !processing
+        }
         
         // Observe current position
         viewModel.currentPosition.observe(viewLifecycleOwner) { positionMs ->
@@ -135,6 +168,18 @@ class PlaybackFragment : Fragment() {
             val secs = seconds % 60
             binding.playerControls.tvCurrentPosition.text = String.format("%d:%02d", minutes, secs)
         }
+
+        viewModel.statusMessage.observe(viewLifecycleOwner) { message ->
+            message?.let {
+                val text = if (it.args.isEmpty()) {
+                    getString(it.resId)
+                } else {
+                    getString(it.resId, *it.args.toTypedArray())
+                }
+                Toast.makeText(requireContext(), text, Toast.LENGTH_SHORT).show()
+                viewModel.clearStatusMessage()
+            }
+        }
     }
     
     private fun showMoreOptionsMenu(recording: Recording, view: View) {
@@ -148,6 +193,10 @@ class PlaybackFragment : Fragment() {
                     }
                     R.id.action_share -> {
                         // TODO: Implement share functionality
+                        true
+                    }
+                    R.id.action_export_binaural -> {
+                        viewModel.exportSelectedRecording(recording)
                         true
                     }
                     R.id.action_details -> {

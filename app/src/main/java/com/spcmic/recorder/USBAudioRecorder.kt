@@ -79,7 +79,12 @@ class USBAudioRecorder(
         private const val DEFAULT_SAMPLE_RATE = 48000
         init {
             try {
+            try {
                 System.loadLibrary("spcmic_recorder")
+                android.util.Log.i("USBAudioRecorder", "Native library loaded: spcmic_recorder")
+            } catch (e: UnsatisfiedLinkError) {
+                android.util.Log.e("USBAudioRecorder", "Failed to load native library for USB recording", e)
+            }
                 android.util.Log.i("USBAudioRecorder", "Native library loaded successfully")
             } catch (e: UnsatisfiedLinkError) {
                 android.util.Log.e("USBAudioRecorder", "Failed to load native library: ${e.message}")
@@ -441,11 +446,19 @@ class USBAudioRecorder(
         stopRecording()
         levelUpdateJob?.cancel()
         
-        // Stop native monitoring
-        stopMonitoringNative()
+        // Stop native monitoring (safe - may not be initialized yet)
+        try {
+            stopMonitoringNative()
+        } catch (e: UnsatisfiedLinkError) {
+            // Native library not loaded or method not available - that's OK
+        }
         
         // Release native resources
-        releaseNativeAudio()
+        try {
+            releaseNativeAudio()
+        } catch (e: UnsatisfiedLinkError) {
+            // Native library not loaded or method not available - that's OK
+        }
         isNativeInitialized = false
         viewModel.clearClipping()
         

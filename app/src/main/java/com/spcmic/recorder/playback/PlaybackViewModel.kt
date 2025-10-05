@@ -1,19 +1,35 @@
 package com.spcmic.recorder.playback
 
+import android.content.SharedPreferences
 import android.os.Environment
+import android.util.Log
+import android.content.res.AssetManager
+import com.spcmic.recorder.R
+import androidx.annotation.StringRes
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 /**
  * ViewModel for playback screen
  */
 class PlaybackViewModel : ViewModel() {
+    companion object {
+    private const val TAG = "PlaybackViewModel"
+    const val PREFS_NAME = "playback_cache_prefs"
+        private const val PREF_LAST_CACHE_SOURCE = "last_cached_source"
+        private const val CACHE_FILE_NAME = "playback_cache.wav"
+    }
     
     private val _recordings = MutableLiveData<List<Recording>>(emptyList())
     val recordings: LiveData<List<Recording>> = _recordings
@@ -35,6 +51,20 @@ class PlaybackViewModel : ViewModel() {
     
     private val _totalDuration = MutableLiveData<Long>(0L)
     val totalDuration: LiveData<Long> = _totalDuration
+
+    private val _isPreprocessing = MutableLiveData(false)
+    val isPreprocessing: LiveData<Boolean> = _isPreprocessing
+
+    private val _statusMessage = MutableLiveData<PlaybackMessage?>()
+    val statusMessage: LiveData<PlaybackMessage?> = _statusMessage
+    
+    // Native playback engine
+    private var playbackEngine: NativePlaybackEngine? = null
+    private var positionUpdateJob: Job? = null
+    private var assetManager: AssetManager? = null
+    private var cacheDirectory: String? = null
+    private var preferences: SharedPreferences? = null
+    private val preprocessMutex = Mutex()
     
     /**
      * Scan directory for recordings
@@ -67,20 +97,176 @@ class PlaybackViewModel : ViewModel() {
      * Select a recording for playback
      */
     fun selectRecording(recording: Recording) {
-        _selectedRecording.value = recording
-        _totalDuration.value = recording.durationMs
-        _currentPosition.value = 0L
-        _isPlaying.value = false
+        // Stop current playback if any
+        stopPlayback()
+        
+        // Load new file
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (playbackEngine == null) {
+                    playbackEngine = NativePlaybackEngine()
+                }
+                assetManager?.let { playbackEngine?.setAssetManager(it) }
+                cacheDirectory?.let { playbackEngine?.setCacheDirectory(it) }
+
+                if (playbackEngine?.loadFile(recording.file.absolutePath) == true) {
+                    val reused = tryReuseCachedPreRender(recording)
+                    val durationSeconds = playbackEngine?.getDuration() ?: 0.0
+                    
+                    withContext(Dispatchers.Main) {
+                        _selectedRecording.value = recording
+                        _totalDuration.value = (durationSeconds * 1000).toLong()
+                        _currentPosition.value = 0L
+                        _isPlaying.value = false
+                        _isPreprocessing.value = false
+                        if (reused) {
+                            _statusMessage.value = PlaybackMessage(R.string.playback_cached_ready)
+                        }
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        // TODO: Show error to user
+                        android.util.Log.e("PlaybackViewModel", "Failed to load file: ${recording.file.absolutePath}")
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("PlaybackViewModel", "Error loading file", e)
+            }
+        }
     }
     
     /**
      * Clear selected recording
      */
     fun clearSelection() {
+        stopPlayback()
+        playbackEngine?.release()
+        playbackEngine = null
+        
         _selectedRecording.value = null
         _isPlaying.value = false
         _currentPosition.value = 0L
         _totalDuration.value = 0L
+        _isPreprocessing.value = false
+    }
+    
+    /**
+     * Start playback
+     */
+    fun play() {
+        val engine = playbackEngine ?: return
+
+        if (engine.isPreRenderReady()) {
+            if (engine.play()) {
+                _isPlaying.value = true
+                startPositionUpdates()
+            } else {
+                _statusMessage.value = PlaybackMessage(R.string.playback_not_ready)
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            val ready = ensurePreprocessed()
+            if (!ready) {
+                return@launch
+            }
+
+            if (engine.play()) {
+                _isPlaying.value = true
+                _currentPosition.value = 0L
+                startPositionUpdates()
+            } else {
+                _statusMessage.value = PlaybackMessage(R.string.playback_not_ready)
+            }
+        }
+    }
+    
+    /**
+     * Pause playback
+     */
+    fun pause() {
+        playbackEngine?.pause()
+        _isPlaying.value = false
+        stopPositionUpdates()
+    }
+    
+    /**
+     * Stop playback
+     */
+    fun stopPlayback() {
+        playbackEngine?.stop()
+        _isPlaying.value = false
+        _currentPosition.value = 0L
+        stopPositionUpdates()
+    }
+    
+    /**
+     * Seek to position
+     */
+    fun seekTo(positionMs: Long) {
+        val positionSeconds = positionMs / 1000.0
+        playbackEngine?.seek(positionSeconds)
+        _currentPosition.value = positionMs
+    }
+
+    fun exportSelectedRecording(recording: Recording) {
+        val current = _selectedRecording.value
+        if (current == null || current.file != recording.file) {
+            _statusMessage.value = PlaybackMessage(R.string.export_select_recording)
+            return
+        }
+
+        val engine = playbackEngine ?: return
+
+        viewModelScope.launch {
+            val ready = ensurePreprocessed()
+            if (!ready) {
+                return@launch
+            }
+
+            val destination = withContext(Dispatchers.IO) {
+                val parent = recording.file.parentFile ?: return@withContext null
+                val baseName = recording.file.nameWithoutExtension
+                val exportFile = File(parent, "${baseName}_binaural.wav")
+                if (engine.exportPreRendered(exportFile.absolutePath)) exportFile else null
+            }
+
+            _statusMessage.value = destination?.let {
+                PlaybackMessage(R.string.export_success, listOf(it.name))
+            } ?: PlaybackMessage(R.string.export_failure)
+        }
+    }
+    
+    /**
+     * Start periodic position updates
+     */
+    private fun startPositionUpdates() {
+        stopPositionUpdates()
+        
+        positionUpdateJob = viewModelScope.launch {
+            while (isActive) {
+                val positionSeconds = playbackEngine?.getPosition() ?: 0.0
+                _currentPosition.value = (positionSeconds * 1000).toLong()
+                
+                // Check if playback finished
+                val state = playbackEngine?.getState()
+                if (state == NativePlaybackEngine.State.STOPPED) {
+                    _isPlaying.value = false
+                    break
+                }
+                
+                delay(100)  // Update every 100ms
+            }
+        }
+    }
+    
+    /**
+     * Stop position updates
+     */
+    private fun stopPositionUpdates() {
+        positionUpdateJob?.cancel()
+        positionUpdateJob = null
     }
     
     /**
@@ -88,6 +274,20 @@ class PlaybackViewModel : ViewModel() {
      */
     fun selectIRPreset(preset: IRPreset) {
         _selectedIRPreset.value = preset
+    }
+
+    fun setAssetManager(manager: AssetManager) {
+        assetManager = manager
+        playbackEngine?.setAssetManager(manager)
+    }
+
+    fun setPreferences(prefs: SharedPreferences) {
+        preferences = prefs
+    }
+
+    fun setCacheDirectory(path: String) {
+        cacheDirectory = path
+        playbackEngine?.setCacheDirectory(path)
     }
     
     /**
@@ -103,6 +303,50 @@ class PlaybackViewModel : ViewModel() {
     fun updatePosition(positionMs: Long) {
         _currentPosition.value = positionMs
     }
+
+    fun clearStatusMessage() {
+    _statusMessage.value = null
+    }
+
+    private fun tryReuseCachedPreRender(recording: Recording): Boolean {
+        val engine = playbackEngine ?: return false
+        val cacheDir = cacheDirectory ?: return false
+        val lastSource = lastCachedSource() ?: return false
+
+        if (lastSource != recording.file.absolutePath) {
+            return false
+        }
+
+        val cacheFile = File(cacheDir, CACHE_FILE_NAME)
+        if (!cacheFile.exists()) {
+            clearCachedSource()
+            return false
+        }
+
+        val reused = runCatching {
+            engine.useCachedPreRender(recording.file.absolutePath)
+        }.onFailure { throwable ->
+            Log.e(TAG, "Failed to reuse cached pre-render", throwable)
+        }.getOrDefault(false)
+
+        if (reused) {
+            rememberCachedSource(recording.file.absolutePath)
+        } else {
+            clearCachedSource()
+        }
+
+        return reused
+    }
+
+    private fun rememberCachedSource(path: String) {
+        preferences?.edit()?.putString(PREF_LAST_CACHE_SOURCE, path)?.apply()
+    }
+
+    private fun clearCachedSource() {
+        preferences?.edit()?.remove(PREF_LAST_CACHE_SOURCE)?.apply()
+    }
+
+    private fun lastCachedSource(): String? = preferences?.getString(PREF_LAST_CACHE_SOURCE, null)
     
     /**
      * Get total storage used by recordings
@@ -123,4 +367,49 @@ class PlaybackViewModel : ViewModel() {
             else -> String.format("%.0f KB", bytes / 1024f)
         }
     }
+    
+    override fun onCleared() {
+        super.onCleared()
+        stopPlayback()
+        playbackEngine?.release()
+        playbackEngine = null
+    }
+
+    private suspend fun ensurePreprocessed(): Boolean {
+        val engine = playbackEngine ?: return false
+        if (engine.isPreRenderReady()) {
+            return true
+        }
+
+        return preprocessMutex.withLock {
+            if (engine.isPreRenderReady()) {
+                return@withLock true
+            }
+
+            try {
+                _isPreprocessing.value = true
+                val success = withContext(Dispatchers.IO) {
+                    engine.preparePreRender()
+                }
+
+                if (success) {
+                    val newDuration = engine.getDuration()
+                    _totalDuration.value = (newDuration * 1000).toLong()
+                    _currentPosition.value = 0L
+                    selectedRecording.value?.file?.absolutePath?.let { path ->
+                        rememberCachedSource(path)
+                    }
+                } else {
+                    _statusMessage.value = PlaybackMessage(R.string.preprocessing_failed)
+                    clearCachedSource()
+                }
+
+                success
+            } finally {
+                _isPreprocessing.value = false
+            }
+        }
+    }
 }
+
+data class PlaybackMessage(@StringRes val resId: Int, val args: List<Any> = emptyList())

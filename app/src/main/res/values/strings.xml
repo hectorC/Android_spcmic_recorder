@@ -17,4 +17,11 @@
     <string name="reset_clip">Reset</string>
     <string name="recording_configuration_title">Recording Configuration</string>
     <string name="clipping_detected">Clipping detected</string>
+    <string name="preprocessing_message">Pre-processing recording…</string>
+    <string name="preprocessing_failed">Failed to preprocess recording</string>
+    <string name="export_success">Exported binaural mix to %1$s</string>
+    <string name="export_failure">Failed to export binaural mix</string>
+    <string name="export_select_recording">Select the recording before exporting</string>
+    <string name="playback_not_ready">Playback not ready</string>
+    <string name="playback_cached_ready">Using cached binaural mix</string>
 </resources>
