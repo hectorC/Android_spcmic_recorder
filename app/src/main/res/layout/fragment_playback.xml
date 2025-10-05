@@ -136,7 +136,8 @@
         android:background="#B3000000"
         android:visibility="gone"
         android:clickable="true"
-        android:focusable="true">
+        android:focusable="true"
+        android:elevation="32dp">
 
         <LinearLayout
             android:layout_width="wrap_content"

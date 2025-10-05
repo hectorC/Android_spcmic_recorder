@@ -163,7 +163,7 @@ class PlaybackViewModel : ViewModel() {
     }
 
     fun setPlaybackGain(gainDb: Float) {
-        val clamped = gainDb.coerceIn(0f, 24f)
+        val clamped = gainDb.coerceIn(0f, 48f)
         _playbackGainDb.value = clamped
         playbackEngine?.setPlaybackGain(clamped)
     }

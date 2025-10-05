@@ -610,7 +610,7 @@ bool PlaybackEngine::useExistingPreRendered(const std::string& sourcePath) {
 }
 
 void PlaybackEngine::setPlaybackGainDb(float gainDb) {
-    const float clampedDb = std::max(0.0f, std::min(gainDb, 24.0f));
+    const float clampedDb = std::max(0.0f, std::min(gainDb, 48.0f));
     const float linear = std::pow(10.0f, clampedDb / 20.0f);
     playbackGainLinear_.store(linear, std::memory_order_relaxed);
 }

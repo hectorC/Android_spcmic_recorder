@@ -159,6 +159,9 @@ class PlaybackFragment : Fragment() {
         }
 
         viewModel.isPreprocessing.observe(viewLifecycleOwner) { processing ->
+            if (processing) {
+                binding.preprocessOverlay.bringToFront()
+            }
             binding.preprocessOverlay.visibility = if (processing) View.VISIBLE else View.GONE
             binding.playerControls.btnPlayPause.isEnabled = !processing
             binding.playerControls.btnStop.isEnabled = !processing

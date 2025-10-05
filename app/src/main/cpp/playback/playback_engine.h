@@ -117,7 +117,7 @@ public:
     bool useExistingPreRendered(const std::string& sourcePath);
 
     /**
-     * Adjust playback gain in decibels (0 - 24 dB)
+     * Adjust playback gain in decibels (0 - 48 dB)
      */
     void setPlaybackGainDb(float gainDb);
 

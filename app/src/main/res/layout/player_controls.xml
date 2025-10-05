@@ -203,7 +203,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:valueFrom="0"
-                android:valueTo="24"
+                android:valueTo="48"
                 android:stepSize="0.5"
                 android:value="0"
                 app:thumbColor="#A78BFA"
