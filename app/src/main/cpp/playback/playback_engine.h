@@ -117,6 +117,16 @@ public:
     bool useExistingPreRendered(const std::string& sourcePath);
 
     /**
+     * Adjust playback gain in decibels (0 - 24 dB)
+     */
+    void setPlaybackGainDb(float gainDb);
+
+    /**
+     * Get the current playback gain in decibels
+     */
+    float getPlaybackGainDb() const;
+
+    /**
      * Query progress of the current pre-render operation (0-100)
      */
     int32_t getPreRenderProgress() const;
@@ -167,6 +177,7 @@ private:
     int32_t sourceSampleRate_;
     int32_t sourceBitsPerSample_;
     int32_t sourceNumChannels_;
+    std::atomic<float> playbackGainLinear_;
     std::atomic<int32_t> preRenderProgress_;
     std::atomic<bool> preRenderInProgress_;
     

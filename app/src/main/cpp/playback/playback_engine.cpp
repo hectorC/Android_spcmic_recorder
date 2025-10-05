@@ -48,6 +48,7 @@ PlaybackEngine::PlaybackEngine()
     , sourceSampleRate_(0)
     , sourceBitsPerSample_(0)
     , sourceNumChannels_(0)
+    , playbackGainLinear_(1.0f)
     , preRenderProgress_(0)
     , preRenderInProgress_(false) {
     
@@ -273,6 +274,7 @@ void PlaybackEngine::processAudio(float* output, int32_t numFrames) {
 
     const int32_t fileChannels = wavReader_.getNumChannels();
     int32_t framesRead = wavReader_.read(inputBuffer_.data(), numFrames);
+    const float gain = playbackGainLinear_.load(std::memory_order_relaxed);
 
     if (framesRead <= 0) {
         memset(output, 0, numFrames * 2 * sizeof(float));
@@ -295,8 +297,10 @@ void PlaybackEngine::processAudio(float* output, int32_t numFrames) {
 
     for (int32_t frame = 0; frame < numFrames; ++frame) {
         if (frame < framesRead) {
-            const float left = inputBuffer_[frame * fileChannels];
-            const float right = (fileChannels > 1) ? inputBuffer_[frame * fileChannels + 1] : left;
+            float left = inputBuffer_[frame * fileChannels];
+            float right = (fileChannels > 1) ? inputBuffer_[frame * fileChannels + 1] : left;
+            left *= gain;
+            right *= gain;
             output[frame * 2] = left;
             output[frame * 2 + 1] = right;
         } else {
@@ -603,6 +607,20 @@ bool PlaybackEngine::useExistingPreRendered(const std::string& sourcePath) {
 
     LOGD("Reusing pre-rendered cache at %s for source %s", cachePath.c_str(), sourcePath.c_str());
     return true;
+}
+
+void PlaybackEngine::setPlaybackGainDb(float gainDb) {
+    const float clampedDb = std::max(0.0f, std::min(gainDb, 24.0f));
+    const float linear = std::pow(10.0f, clampedDb / 20.0f);
+    playbackGainLinear_.store(linear, std::memory_order_relaxed);
+}
+
+float PlaybackEngine::getPlaybackGainDb() const {
+    const float linear = playbackGainLinear_.load(std::memory_order_relaxed);
+    if (linear <= 0.0f) {
+        return 0.0f;
+    }
+    return 20.0f * std::log10(linear);
 }
 
 int32_t PlaybackEngine::getPreRenderProgress() const {

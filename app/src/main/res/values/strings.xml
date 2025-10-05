@@ -25,4 +25,7 @@
     <string name="playback_not_ready">Playback not ready</string>
     <string name="playback_cached_ready">Using cached binaural mix</string>
     <string name="percent_format">%1$d%%</string>
+    <string name="gain_label">Playback gain</string>
+    <string name="gain_value_zero">0 dB</string>
+    <string name="gain_value_format">+%1$.1f dB</string>
 </resources>

@@ -164,6 +164,54 @@
                 android:background="?attr/selectableItemBackgroundBorderless" />
         </LinearLayout>
 
+        <!-- Gain Control -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="20dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tvGainLabel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/gain_label"
+                    android:textColor="@android:color/white"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvGainValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/gain_value_zero"
+                    android:textColor="#99FFFFFF"
+                    android:textSize="13sp"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sliderGain"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:valueFrom="0"
+                android:valueTo="24"
+                android:stepSize="0.5"
+                android:value="0"
+                app:thumbColor="#A78BFA"
+                app:trackColorActive="#7C3AED"
+                app:trackColorInactive="#337C3AED"
+                app:haloColor="#7C3AED" />
+        </LinearLayout>
+
         <!-- Loading Indicator -->
         <ProgressBar
             android:id="@+id/progressLoading"

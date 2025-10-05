@@ -71,6 +71,9 @@ class PlaybackViewModel : ViewModel() {
     private var cacheDirectory: String? = null
     private var preferences: SharedPreferences? = null
     private val preprocessMutex = Mutex()
+
+    private val _playbackGainDb = MutableLiveData(0f)
+    val playbackGainDb: LiveData<Float> = _playbackGainDb
     
     /**
      * Scan directory for recordings
@@ -114,6 +117,7 @@ class PlaybackViewModel : ViewModel() {
                 }
                 assetManager?.let { playbackEngine?.setAssetManager(it) }
                 cacheDirectory?.let { playbackEngine?.setCacheDirectory(it) }
+                playbackEngine?.setPlaybackGain(_playbackGainDb.value ?: 0f)
 
                 if (playbackEngine?.loadFile(recording.file.absolutePath) == true) {
                     val reused = tryReuseCachedPreRender(recording)
@@ -156,6 +160,12 @@ class PlaybackViewModel : ViewModel() {
         _totalDuration.value = 0L
         _isPreprocessing.value = false
         _preprocessProgress.value = 0
+    }
+
+    fun setPlaybackGain(gainDb: Float) {
+        val clamped = gainDb.coerceIn(0f, 24f)
+        _playbackGainDb.value = clamped
+        playbackEngine?.setPlaybackGain(clamped)
     }
     
     /**

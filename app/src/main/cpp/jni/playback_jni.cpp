@@ -218,6 +218,36 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeGetPreRenderProgres
     return static_cast<jint>(engine->getPreRenderProgress());
 }
 
+JNIEXPORT void JNICALL
+Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeSetPlaybackGain(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong engineHandle,
+    jfloat gainDb) {
+
+    PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
+    if (!engine) {
+        LOGE("Invalid engine handle in setPlaybackGain");
+        return;
+    }
+
+    engine->setPlaybackGainDb(gainDb);
+}
+
+JNIEXPORT jfloat JNICALL
+Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeGetPlaybackGain(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong engineHandle) {
+
+    PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
+    if (!engine) {
+        return 0.0f;
+    }
+
+    return engine->getPlaybackGainDb();
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeExportPreRendered(
     JNIEnv* env,

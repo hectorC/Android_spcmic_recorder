@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.spcmic.recorder.R
 import com.spcmic.recorder.databinding.FragmentPlaybackBinding
 import java.io.File
+import kotlin.math.abs
 
 /**
  * Fragment for playback functionality
@@ -39,8 +40,8 @@ class PlaybackFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         
         viewModel = ViewModelProvider(this)[PlaybackViewModel::class.java]
-    viewModel.setAssetManager(requireContext().assets)
-    val preferences = requireContext().getSharedPreferences(PlaybackViewModel.PREFS_NAME, Context.MODE_PRIVATE)
+        viewModel.setAssetManager(requireContext().assets)
+        val preferences = requireContext().getSharedPreferences(PlaybackViewModel.PREFS_NAME, Context.MODE_PRIVATE)
         viewModel.setPreferences(preferences)
 
         val cacheDir = File(requireContext().filesDir, "playback_cache")
@@ -107,6 +108,16 @@ class PlaybackFragment : Fragment() {
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
+
+        val initialGain = viewModel.playbackGainDb.value ?: 0f
+        binding.playerControls.sliderGain.value = initialGain
+        binding.playerControls.tvGainValue.text = formatGain(initialGain)
+
+        binding.playerControls.sliderGain.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) {
+                viewModel.setPlaybackGain(value)
+            }
+        }
     }
     
     private fun observeViewModel() {
@@ -152,6 +163,7 @@ class PlaybackFragment : Fragment() {
             binding.playerControls.btnPlayPause.isEnabled = !processing
             binding.playerControls.btnStop.isEnabled = !processing
             binding.playerControls.seekBarTimeline.isEnabled = !processing
+            binding.playerControls.sliderGain.isEnabled = !processing
             if (!processing) {
                 binding.progressPreprocess.progress = 0
                 binding.tvPreprocessPercent.text = getString(R.string.percent_format, 0)
@@ -161,6 +173,14 @@ class PlaybackFragment : Fragment() {
         viewModel.preprocessProgress.observe(viewLifecycleOwner) { percent ->
             binding.progressPreprocess.progress = percent
             binding.tvPreprocessPercent.text = getString(R.string.percent_format, percent)
+        }
+
+        viewModel.playbackGainDb.observe(viewLifecycleOwner) { gainDb ->
+            val slider = binding.playerControls.sliderGain
+            if (abs(slider.value - gainDb) > 0.01f) {
+                slider.value = gainDb
+            }
+            binding.playerControls.tvGainValue.text = formatGain(gainDb)
         }
         
         // Observe current position
@@ -177,7 +197,6 @@ class PlaybackFragment : Fragment() {
             val secs = seconds % 60
             binding.playerControls.tvCurrentPosition.text = String.format("%d:%02d", minutes, secs)
         }
-
         viewModel.statusMessage.observe(viewLifecycleOwner) { message ->
             message?.let {
                 val text = if (it.args.isEmpty()) {
@@ -222,5 +241,13 @@ class PlaybackFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    private fun formatGain(gainDb: Float): String {
+        return if (gainDb < 0.05f) {
+            getString(R.string.gain_value_zero)
+        } else {
+            getString(R.string.gain_value_format, gainDb)
+        }
     }
 }
