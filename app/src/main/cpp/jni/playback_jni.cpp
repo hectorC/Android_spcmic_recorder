@@ -204,6 +204,20 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeIsPreRenderReady(
     return engine->isPreRenderedReady() ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jint JNICALL
+Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeGetPreRenderProgress(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong engineHandle) {
+
+    PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
+    if (!engine) {
+        return 0;
+    }
+
+    return static_cast<jint>(engine->getPreRenderProgress());
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeExportPreRendered(
     JNIEnv* env,

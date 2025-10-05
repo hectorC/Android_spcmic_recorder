@@ -24,4 +24,5 @@
     <string name="export_select_recording">Select the recording before exporting</string>
     <string name="playback_not_ready">Playback not ready</string>
     <string name="playback_cached_ready">Using cached binaural mix</string>
+    <string name="percent_format">%1$d%%</string>
 </resources>

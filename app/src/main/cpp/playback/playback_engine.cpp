@@ -47,7 +47,9 @@ PlaybackEngine::PlaybackEngine()
     , usePreRendered_(false)
     , sourceSampleRate_(0)
     , sourceBitsPerSample_(0)
-    , sourceNumChannels_(0) {
+    , sourceNumChannels_(0)
+    , preRenderProgress_(0)
+    , preRenderInProgress_(false) {
     
     // Allocate input buffer for 84 channels
     inputBuffer_.resize(BUFFER_FRAMES * 84);
@@ -156,6 +158,8 @@ void PlaybackEngine::clearPreRenderedState() {
     usePreRendered_ = false;
     preRenderedFilePath_.clear();
     preRenderedSourcePath_.clear();
+    preRenderProgress_.store(0, std::memory_order_relaxed);
+    preRenderInProgress_.store(false, std::memory_order_relaxed);
 }
 
 bool PlaybackEngine::play() {
@@ -400,6 +404,9 @@ bool PlaybackEngine::preparePreRenderedFile() {
         return false;
     }
 
+    preRenderProgress_.store(0, std::memory_order_relaxed);
+    preRenderInProgress_.store(true, std::memory_order_relaxed);
+
     const std::string tempPath = JoinPath(preRenderCacheDir_, kCacheFileName);
     LOGD("Pre-rendering source %s to %s", sourceFilePath_.c_str(), tempPath.c_str());
     std::remove(tempPath.c_str());
@@ -407,12 +414,15 @@ bool PlaybackEngine::preparePreRenderedFile() {
     WAVWriter writer;
     if (!writer.open(tempPath, sourceSampleRate_, 2, 24)) {
         LOGE("Failed to open pre-render target: %s", tempPath.c_str());
+        preRenderInProgress_.store(false, std::memory_order_relaxed);
+        preRenderProgress_.store(0, std::memory_order_relaxed);
         return false;
     }
 
     matrixConvolver_.reset();
 
     int64_t framesProcessed = 0;
+    const int64_t totalFrames = wavReader_.getTotalFrames();
     bool ok = true;
 
     auto convertTo24 = [this](int32_t frames) {
@@ -448,6 +458,18 @@ bool PlaybackEngine::preparePreRenderedFile() {
 
         matrixConvolver_.process(inputBuffer_.data(), stereoBuffer_.data(), BUFFER_FRAMES);
 
+        framesProcessed += framesRead;
+        if (totalFrames > 0) {
+            int progress = static_cast<int>((framesProcessed * 100) / totalFrames);
+            if (progress > 99) {
+                progress = 99;
+            }
+            if (progress < 0) {
+                progress = 0;
+            }
+            preRenderProgress_.store(progress, std::memory_order_relaxed);
+        }
+
         const int32_t framesToWrite = framesRead;
         convertTo24(framesToWrite);
 
@@ -456,8 +478,6 @@ bool PlaybackEngine::preparePreRenderedFile() {
             ok = false;
             break;
         }
-
-        framesProcessed += framesRead;
 
         if (framesRead < BUFFER_FRAMES) {
             std::fill(inputBuffer_.begin(),
@@ -481,6 +501,8 @@ bool PlaybackEngine::preparePreRenderedFile() {
         LOGE("Pre-render failed");
         wavReader_.seek(0);
         std::remove(tempPath.c_str());
+        preRenderInProgress_.store(false, std::memory_order_relaxed);
+        preRenderProgress_.store(0, std::memory_order_relaxed);
         return false;
     }
 
@@ -492,6 +514,8 @@ bool PlaybackEngine::preparePreRenderedFile() {
         if (!wavReader_.open(sourceFilePath_)) {
             LOGE("Failed to reopen original file after pre-render failure");
         }
+        preRenderInProgress_.store(false, std::memory_order_relaxed);
+        preRenderProgress_.store(0, std::memory_order_relaxed);
         return false;
     }
 
@@ -505,6 +529,8 @@ bool PlaybackEngine::preparePreRenderedFile() {
 
     LOGD("Pre-rendered stereo mix created: %s (processed %lld frames)",
          preRenderedFilePath_.c_str(), static_cast<long long>(framesProcessed));
+    preRenderProgress_.store(100, std::memory_order_relaxed);
+    preRenderInProgress_.store(false, std::memory_order_relaxed);
     return true;
 }
 
@@ -572,9 +598,19 @@ bool PlaybackEngine::useExistingPreRendered(const std::string& sourcePath) {
     sourceSampleRate_ = wavReader_.getSampleRate();
     sourceBitsPerSample_ = wavReader_.getBitsPerSample();
     sourceNumChannels_ = wavReader_.getNumChannels();
+    preRenderProgress_.store(100, std::memory_order_relaxed);
+    preRenderInProgress_.store(false, std::memory_order_relaxed);
 
     LOGD("Reusing pre-rendered cache at %s for source %s", cachePath.c_str(), sourcePath.c_str());
     return true;
+}
+
+int32_t PlaybackEngine::getPreRenderProgress() const {
+    return preRenderProgress_.load(std::memory_order_relaxed);
+}
+
+bool PlaybackEngine::isPreRenderInProgress() const {
+    return preRenderInProgress_.load(std::memory_order_relaxed);
 }
 
 } // namespace spcmic

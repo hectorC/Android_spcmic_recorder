@@ -116,6 +116,16 @@ public:
      */
     bool useExistingPreRendered(const std::string& sourcePath);
 
+    /**
+     * Query progress of the current pre-render operation (0-100)
+     */
+    int32_t getPreRenderProgress() const;
+
+    /**
+     * Check if a pre-render operation is active
+     */
+    bool isPreRenderInProgress() const;
+
 private:
     /**
      * Audio callback - fills output buffer
@@ -157,6 +167,8 @@ private:
     int32_t sourceSampleRate_;
     int32_t sourceBitsPerSample_;
     int32_t sourceNumChannels_;
+    std::atomic<int32_t> preRenderProgress_;
+    std::atomic<bool> preRenderInProgress_;
     
     static constexpr int32_t BUFFER_FRAMES = 4096;  // ~85ms at 48kHz to improve stability
 };

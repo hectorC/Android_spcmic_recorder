@@ -12,6 +12,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -54,6 +57,9 @@ class PlaybackViewModel : ViewModel() {
 
     private val _isPreprocessing = MutableLiveData(false)
     val isPreprocessing: LiveData<Boolean> = _isPreprocessing
+
+    private val _preprocessProgress = MutableLiveData(0)
+    val preprocessProgress: LiveData<Int> = _preprocessProgress
 
     private val _statusMessage = MutableLiveData<PlaybackMessage?>()
     val statusMessage: LiveData<PlaybackMessage?> = _statusMessage
@@ -119,6 +125,7 @@ class PlaybackViewModel : ViewModel() {
                         _currentPosition.value = 0L
                         _isPlaying.value = false
                         _isPreprocessing.value = false
+                        _preprocessProgress.value = if (reused) 100 else 0
                         if (reused) {
                             _statusMessage.value = PlaybackMessage(R.string.playback_cached_ready)
                         }
@@ -148,6 +155,7 @@ class PlaybackViewModel : ViewModel() {
         _currentPosition.value = 0L
         _totalDuration.value = 0L
         _isPreprocessing.value = false
+        _preprocessProgress.value = 0
     }
     
     /**
@@ -378,18 +386,48 @@ class PlaybackViewModel : ViewModel() {
     private suspend fun ensurePreprocessed(): Boolean {
         val engine = playbackEngine ?: return false
         if (engine.isPreRenderReady()) {
+            _preprocessProgress.value = 100
             return true
         }
 
         return preprocessMutex.withLock {
             if (engine.isPreRenderReady()) {
+                _preprocessProgress.value = 100
                 return@withLock true
             }
 
             try {
                 _isPreprocessing.value = true
-                val success = withContext(Dispatchers.IO) {
-                    engine.preparePreRender()
+                _preprocessProgress.value = 0
+
+                val success = coroutineScope {
+                    val prepareDeferred = async(Dispatchers.IO) {
+                        engine.preparePreRender()
+                    }
+
+                    val progressJob = launch {
+                        while (isActive) {
+                            val progress = engine.getPreRenderProgress().coerceIn(0, 100)
+                            _preprocessProgress.value = progress
+
+                            if (prepareDeferred.isCompleted && progress >= 100) {
+                                break
+                            }
+
+                            delay(150)
+                        }
+                    }
+
+                    val result = prepareDeferred.await()
+                    progressJob.cancelAndJoin()
+
+                    if (result) {
+                        _preprocessProgress.value = 100
+                    } else {
+                        _preprocessProgress.value = 0
+                    }
+
+                    result
                 }
 
                 if (success) {

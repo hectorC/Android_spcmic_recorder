@@ -152,6 +152,15 @@ class PlaybackFragment : Fragment() {
             binding.playerControls.btnPlayPause.isEnabled = !processing
             binding.playerControls.btnStop.isEnabled = !processing
             binding.playerControls.seekBarTimeline.isEnabled = !processing
+            if (!processing) {
+                binding.progressPreprocess.progress = 0
+                binding.tvPreprocessPercent.text = getString(R.string.percent_format, 0)
+            }
+        }
+
+        viewModel.preprocessProgress.observe(viewLifecycleOwner) { percent ->
+            binding.progressPreprocess.progress = percent
+            binding.tvPreprocessPercent.text = getString(R.string.percent_format, percent)
         }
         
         // Observe current position

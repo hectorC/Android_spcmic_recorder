@@ -109,6 +109,10 @@ class NativePlaybackEngine {
         return nativeIsPreRenderReady(engineHandle)
     }
 
+    fun getPreRenderProgress(): Int {
+        return nativeGetPreRenderProgress(engineHandle)
+    }
+
     fun exportPreRendered(destinationPath: String): Boolean {
         return nativeExportPreRendered(engineHandle, destinationPath)
     }
@@ -144,5 +148,6 @@ class NativePlaybackEngine {
     private external fun nativeUseCachedPreRender(engineHandle: Long, sourcePath: String): Boolean
     private external fun nativePreparePreRender(engineHandle: Long): Boolean
     private external fun nativeIsPreRenderReady(engineHandle: Long): Boolean
+    private external fun nativeGetPreRenderProgress(engineHandle: Long): Int
     private external fun nativeExportPreRendered(engineHandle: Long, destinationPath: String): Boolean
 }
