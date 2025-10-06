@@ -97,3 +97,5 @@ playback_plan.md
 SPRINT1_COMPLETE.md
 app_crash_full.txt
 log.txt
+# Third-party reference sources (kept locally only)
+saf_matrixconv/
