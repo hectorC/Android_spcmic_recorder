@@ -77,6 +77,9 @@ class PlaybackViewModel : ViewModel() {
 
     private val _playbackGainDb = MutableLiveData(0f)
     val playbackGainDb: LiveData<Float> = _playbackGainDb
+
+    private val _isLooping = MutableLiveData(false)
+    val isLooping: LiveData<Boolean> = _isLooping
     
     /**
      * Scan directory for recordings
@@ -123,6 +126,7 @@ class PlaybackViewModel : ViewModel() {
                 assetManager?.let { playbackEngine?.setAssetManager(it) }
                 cacheDirectory?.let { playbackEngine?.setCacheDirectory(it) }
                 playbackEngine?.setPlaybackGain(_playbackGainDb.value ?: 0f)
+                playbackEngine?.setLooping(_isLooping.value ?: false)
 
                 if (playbackEngine?.loadFile(recording.file.absolutePath) == true) {
                     val reused = tryReuseCachedPreRender(recording)
@@ -173,6 +177,11 @@ class PlaybackViewModel : ViewModel() {
         val clamped = gainDb.coerceIn(0f, 48f)
         _playbackGainDb.value = clamped
         playbackEngine?.setPlaybackGain(clamped)
+    }
+
+    fun setLooping(looping: Boolean) {
+        _isLooping.value = looping
+        playbackEngine?.setLooping(looping)
     }
     
     /**

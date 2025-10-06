@@ -127,6 +127,16 @@ public:
     float getPlaybackGainDb() const;
 
     /**
+     * Enable or disable looping playback
+     */
+    void setLooping(bool enabled);
+
+    /**
+     * Query whether looping playback is enabled
+     */
+    bool isLooping() const;
+
+    /**
      * Query progress of the current pre-render operation (0-100)
      */
     int32_t getPreRenderProgress() const;
@@ -178,6 +188,7 @@ private:
     int32_t sourceBitsPerSample_;
     int32_t sourceNumChannels_;
     std::atomic<float> playbackGainLinear_;
+    std::atomic<bool> loopEnabled_;
     std::atomic<int32_t> preRenderProgress_;
     std::atomic<bool> preRenderInProgress_;
     

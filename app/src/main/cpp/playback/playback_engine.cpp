@@ -49,6 +49,7 @@ PlaybackEngine::PlaybackEngine()
     , sourceBitsPerSample_(0)
     , sourceNumChannels_(0)
     , playbackGainLinear_(1.0f)
+    , loopEnabled_(false)
     , preRenderProgress_(0)
     , preRenderInProgress_(false) {
     
@@ -275,24 +276,69 @@ void PlaybackEngine::processAudio(float* output, int32_t numFrames) {
     const int32_t fileChannels = wavReader_.getNumChannels();
     int32_t framesRead = wavReader_.read(inputBuffer_.data(), numFrames);
     const float gain = playbackGainLinear_.load(std::memory_order_relaxed);
+    const bool loopEnabled = loopEnabled_.load(std::memory_order_relaxed);
 
     if (framesRead <= 0) {
-        memset(output, 0, numFrames * 2 * sizeof(float));
-
-        if (state_ != State::STOPPED) {
-            state_ = State::STOPPED;
+        if (loopEnabled) {
+            if (wavReader_.seek(0)) {
+                framesRead = wavReader_.read(inputBuffer_.data(), numFrames);
+                playbackCompleted_.store(false, std::memory_order_relaxed);
+            }
         }
 
-        if (!playbackCompleted_.exchange(true)) {
-            LOGD("End of file reached");
+        if (framesRead <= 0) {
+            memset(output, 0, numFrames * 2 * sizeof(float));
+
+            if (!loopEnabled) {
+                if (state_ != State::STOPPED) {
+                    state_ = State::STOPPED;
+                }
+
+                if (!playbackCompleted_.exchange(true)) {
+                    LOGD("End of file reached");
+                }
+            }
+            return;
         }
-        return;
+    }
+
+    int32_t totalFramesRead = framesRead;
+
+    if (loopEnabled && totalFramesRead < numFrames) {
+        while (totalFramesRead < numFrames) {
+            if (!wavReader_.seek(0)) {
+                break;
+            }
+
+            const int32_t additional = wavReader_.read(
+                inputBuffer_.data() + static_cast<size_t>(totalFramesRead) * fileChannels,
+                numFrames - totalFramesRead);
+
+            if (additional <= 0) {
+                break;
+            }
+
+            totalFramesRead += additional;
+        }
+
+        framesRead = totalFramesRead;
+        playbackCompleted_.store(false, std::memory_order_relaxed);
     }
 
     if (framesRead < numFrames) {
         std::fill(inputBuffer_.begin() + static_cast<size_t>(framesRead) * fileChannels,
                   inputBuffer_.begin() + static_cast<size_t>(numFrames) * fileChannels,
                   0.0f);
+
+        if (!loopEnabled) {
+            if (state_ != State::STOPPED) {
+                state_ = State::STOPPED;
+            }
+
+            if (!playbackCompleted_.exchange(true)) {
+                LOGD("End of file reached");
+            }
+        }
     }
 
     for (int32_t frame = 0; frame < numFrames; ++frame) {
@@ -621,6 +667,17 @@ float PlaybackEngine::getPlaybackGainDb() const {
         return 0.0f;
     }
     return 20.0f * std::log10(linear);
+}
+
+void PlaybackEngine::setLooping(bool enabled) {
+    loopEnabled_.store(enabled, std::memory_order_relaxed);
+    if (enabled) {
+        playbackCompleted_.store(false, std::memory_order_relaxed);
+    }
+}
+
+bool PlaybackEngine::isLooping() const {
+    return loopEnabled_.load(std::memory_order_relaxed);
 }
 
 int32_t PlaybackEngine::getPreRenderProgress() const {

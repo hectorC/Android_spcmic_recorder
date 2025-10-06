@@ -121,6 +121,14 @@ class NativePlaybackEngine {
         return nativeGetPlaybackGain(engineHandle)
     }
 
+    fun setLooping(enabled: Boolean) {
+        nativeSetLooping(engineHandle, enabled)
+    }
+
+    fun isLooping(): Boolean {
+        return nativeIsLooping(engineHandle)
+    }
+
     fun exportPreRendered(destinationPath: String): Boolean {
         return nativeExportPreRendered(engineHandle, destinationPath)
     }
@@ -159,5 +167,7 @@ class NativePlaybackEngine {
     private external fun nativeGetPreRenderProgress(engineHandle: Long): Int
     private external fun nativeSetPlaybackGain(engineHandle: Long, gainDb: Float)
     private external fun nativeGetPlaybackGain(engineHandle: Long): Float
+    private external fun nativeSetLooping(engineHandle: Long, enabled: Boolean)
+    private external fun nativeIsLooping(engineHandle: Long): Boolean
     private external fun nativeExportPreRendered(engineHandle: Long, destinationPath: String): Boolean
 }

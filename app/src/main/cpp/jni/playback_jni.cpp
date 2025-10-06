@@ -248,6 +248,36 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeGetPlaybackGain(
     return engine->getPlaybackGainDb();
 }
 
+JNIEXPORT void JNICALL
+Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeSetLooping(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong engineHandle,
+    jboolean enabled) {
+
+    PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
+    if (!engine) {
+        LOGE("Invalid engine handle in setLooping");
+        return;
+    }
+
+    engine->setLooping(enabled == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeIsLooping(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong engineHandle) {
+
+    PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
+    if (!engine) {
+        return JNI_FALSE;
+    }
+
+    return engine->isLooping() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeExportPreRendered(
     JNIEnv* env,

@@ -1,7 +1,8 @@
 package com.spcmic.recorder.playback
 
-import android.content.Context
 import android.app.AlertDialog
+import android.content.Context
+import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -9,6 +10,7 @@ import android.view.ViewGroup
 import android.widget.PopupMenu
 import android.widget.SeekBar
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -119,6 +121,12 @@ class PlaybackFragment : Fragment() {
                 viewModel.setPlaybackGain(value)
             }
         }
+
+        updateLoopButton(viewModel.isLooping.value == true)
+        binding.playerControls.btnLoop.setOnClickListener {
+            val currentlyLooping = viewModel.isLooping.value == true
+            viewModel.setLooping(!currentlyLooping)
+        }
     }
     
     private fun observeViewModel() {
@@ -168,6 +176,7 @@ class PlaybackFragment : Fragment() {
             binding.playerControls.btnStop.isEnabled = !processing
             binding.playerControls.seekBarTimeline.isEnabled = !processing
             binding.playerControls.sliderGain.isEnabled = !processing
+            binding.playerControls.btnLoop.isEnabled = !processing
             if (!processing) {
                 binding.progressPreprocess.progress = 0
                 binding.tvPreprocessPercent.text = getString(R.string.percent_format, 0)
@@ -181,6 +190,10 @@ class PlaybackFragment : Fragment() {
         viewModel.processingProgress.observe(viewLifecycleOwner) { percent ->
             binding.progressPreprocess.progress = percent
             binding.tvPreprocessPercent.text = getString(R.string.percent_format, percent)
+        }
+
+        viewModel.isLooping.observe(viewLifecycleOwner) { looping ->
+            updateLoopButton(looping)
         }
 
         viewModel.playbackGainDb.observe(viewLifecycleOwner) { gainDb ->
@@ -255,10 +268,20 @@ class PlaybackFragment : Fragment() {
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.delete)
             .setMessage(R.string.delete_confirmation_message)
-            .setPositiveButton(android.R.string.ok) { _, _ ->
+            .setPositiveButton(R.string.delete) { _, _ ->
                 viewModel.deleteRecording(recording)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    private fun updateLoopButton(looping: Boolean) {
+        val tintColor = if (looping) {
+            ContextCompat.getColor(requireContext(), R.color.purple_500)
+        } else {
+            Color.parseColor("#66FFFFFF")
+        }
+        binding.playerControls.btnLoop.setColorFilter(tintColor)
+        binding.playerControls.btnLoop.alpha = if (looping) 1f else 0.8f
     }
 }
