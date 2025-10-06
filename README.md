@@ -1,169 +1,96 @@
-**NOTE (from a human):** Contains AI generated code, and hyperbolic descriptions characteristic of the generative AI models used at the time of development of this app.
+# spcmic Recorder & Playback
 
-# spcm## Features
+An Android app for capturing and reviewing the full 84-channel output of the spcmic array over USB-C. The project pairs a native USB audio engine with a Kotlin MVVM UI and Material Design 3 styling to support field recordings plus binaural playback.
 
-- **84-Channel Recording** – St## Usage
+## Current Highlights
 
-1. **Connect the spcmic** – Plug the array into the Android device via USB-C. Use the on-screen *Reconnect* button if Android races you to the claim.
-2. **Launch the App** – "USB Audio Device Connected" confirms we hold the interface. The app auto-defaults to 48 kHz sample rate.
-3. **Select Sample Rate** – Use the dropdown spinner to choose from the supported rates (displayed in kHz format). The UI shows both the selected rate and the device-reported rate after negotiation.
-4. **Check Clip Status** – The clipping pill starts green ("No clipping detected"). It latches red if any channel hits full-scale during recording.
-5. **Start Recording** – Tap **Start Recording** to begin capture. The session timer displays elapsed recording time, and the filename appears below.
-6. **Reset Clipping (Optional)** – Tap **Reset** to clear the clip latch during or between takes.
-7. **Stop Recording** – Tap **Stop Recording** to finish and save the WAV file with proper header information. stores every channel from the spcmic array with deterministic channel order.
-- **Sample-Rate Picker** – UI exposes the discrete or continuous rates reported by the connected device (e.g., 48 kHz and 96 kHz for spcmic). Requests are negotiated through the USB clock source. Auto-defaults to 48 kHz on launch.
-- **24-bit Uncompressed WAV** – Files are written with the negotiated rate, 24-bit samples, and 84 interleaved channels.
-- **Clipping Indicator** – Latched "Clip" pill lights up if any channel hits 0 dBFS during the take; tap Reset to clear.
-- **USB-C / UAC2 Support** – Communicates directly with UAC-compliant hardware without Android's AudioRecord pipeline.
-- **Modern Purple UI** – Clean Material Design 3 interface with purple gradient theme, optimized for quick deployment in the field.
-- **Dark Mode Support** – Automatic dark theme with proper purple color palette for low-light environments.annel Audio Recorder
-
-An Android application for capturing the full 84-channel output of the spcmic array over USB-C and saving it as 24-bit multichannel WAV files. The app now includes adaptive sample-rate selection and a clipping indicator to simplify field use.
-
-## Features
-
-- **84-Channel Recording** – Streams and stores every channel from the spcmic array with deterministic channel order.
-- **Sample-Rate Picker** – UI exposes the discrete or continuous rates reported by the connected device (e.g., 48 kHz and 96 kHz for spcmic). Requests are negotiated through the USB clock source.
-- **24-bit Uncompressed WAV** – Files are written with the negotiated rate, 24-bit samples, and 84 interleaved channels.
-- **Clipping Indicator** – Latched “Clip” pill lights up if any channel hits 0 dBFS during the take; tap Reset to clear.
-- **USB-C / UAC2 Support** – Communicates directly with UAC-compliant hardware without Android’s AudioRecord pipeline.
-- **Lean UI** – Primary controls (connect, sample rate, record, clip status) optimized for quick deployment. The legacy multi-channel level meter is still present in code and can be re-enabled for diagnostics.
-
-## Technical Specifications
-
-- **Sample Rates**: Any discrete/continuous rates advertised by the device (spcmic exposes 48 kHz & 96 kHz; additional rates may appear after future firmware updates).
-- **Bit Depth**: 24-bit PCM
-- **Channels**: 84 interleaved
-- **Container**: RIFF/WAV with full channel count metadata
-- **Connection**: USB Audio Class 2 (tested with spcmic via USB-C OTG)
-- **Minimum Android Version**: API 29 (Android 10)
+- **84-channel USB-UAC2 capture** at 24-bit/48 kHz (higher rates when exposed by the hardware) with deterministic channel order and proper RIFF metadata.
+- **Adaptive sample-rate negotiation** with a spinner that surfaces both the requested and negotiated rates after enumeration.
+- **Latched clipping indicator** so the user can see when any channel hits 0 dBFS and clear it manually during a take.
+- **Real-time playback engine** with caching, transport controls, and a gain stage that ranges from 0 dB to +48 dB for binaural preview.
+- **Loop toggle** that restarts playback seamlessly at EOF while keeping button state and engine behavior in sync.
+- **Export workflow** decoupled from playback: start an export from any recording, watch progress in the processing overlay, and leave playback ready the whole time.
+- **Dedicated exports directory** at `/storage/emulated/0/Documents/spcmicRecorder/Exports/`, keeping rendered mixes out of the source recording list.
+- **Overflow menu cleanup** with a working delete action, confirmation dialog, and automatic UI refresh.
 
 ## Requirements
 
 ### Hardware
-- Android device with USB-C port and USB Host support
-- spcmic 84-channel microphone array
-- USB-C OTG / host-capable cable
-- High-speed storage (24-bit/48kHz/84ch ≈ 1 GB/minute)
+- Android device running Android 10 (API 29) or newer with USB Host mode.
+- spcmic 84-channel USB audio array with a USB-C OTG/host cable.
+- High-speed storage (rule of thumb: ~1 GB/minute at 48 kHz, ~2 GB/minute at 96 kHz).
+- Optional: external power or cooling for extended sessions.
 
 ### Software
-- Android 10.0 (API level 29) or higher
-- USB Host feature support
-- Audio recording permissions
+- Android Studio Koala (2024.1.1) or newer with Android Gradle Plugin 8.6.1.
+- JDK 17 (bundled with recent Android Studio releases).
+- Gradle wrapper included in this repo (Gradle 8.8).
 
-## Installation
+## Build & Install
 
-1. Clone this repository (`git clone https://github.com/<you>/Android_spcmic_recorder.git`)
-2. Open the project in Android Studio (Giraffe or newer)
-3. Build and install the Debug APK on your Android device
-4. On first launch, grant USB and audio recording permissions when prompted
+```powershell
+cd d:\Audio_Projects\Android_spcmic_recorder
+.\gradlew.bat assembleDebug
+```
 
-## Usage
+Install the resulting APK from `app/build/outputs/apk/debug/` onto a USB-host capable device. When connecting the spcmic, accept the USB permission dialog and choose "Use by default" for smoother reconnects.
 
-1. **Connect the spcmic** – Plug the array into the Android device via USB-C. Use the on-screen *Reconnect* button if Android races you to the claim.
-2. **Launch the App** – “USB Audio Device Connected” confirms we hold the interface.
-3. **Select Sample Rate** – Use the spinner to choose from the supported rates. The UI also shows the device-reported rate after negotiation.
-4. **Check Clip Status** – The clipping pill starts green (“No clipping detected”). It latches red if any channel hits full-scale.
-5. **Start Recording** – Tap **Start Recording** to begin capture. The second label shows the negotiated rate that will be embedded in the WAV file.
-6. **Reset Clipping (Optional)** – Tap **Reset** to clear the clip latch during a take.
-7. **Stop Recording** – Tap **Stop** to finish and flush the WAV header.
+## Recording Workflow
 
-## File Storage
+1. **Connect hardware** – Plug the spcmic array into the device via USB-C. Tap *Reconnect* if Android claims the interface first.
+2. **Launch the recorder view** – The app auto-requests the default 48 kHz rate and displays both requested and negotiated values.
+3. **Select a sample rate** – Use the spinner to pick among the rates advertised by the interface/alt-setting (e.g., 48 kHz, 96 kHz).
+4. **Arm and monitor** – The clipping pill starts green. It latches red if any channel reaches full-scale; tap **Reset** to clear.
+5. **Record** – Tap **Start Recording**. The UI shows elapsed time and the destination filename (e.g., `spcmic_recording_YYYYMMDD_HHMMSS.wav`).
+6. **Stop** – Tap **Stop Recording** to finalize the file. Headers are back-filled with the negotiated format before the file is closed.
 
-Recorded files are saved to:
+Recorded WAV files live in:
+
 ```
 /storage/emulated/0/Documents/spcmicRecorder/
 ```
 
-Files are named with timestamp format:
-```
-spcmic_recording_YYYYMMDD_HHMMSS.wav
-```
+## Playback & Export Workflow
 
-> **Note**: The channel count makes files large. A 10-minute take at 48 kHz is ~10 GB.
+1. **Open a recording** – The playback screen lists top-level recordings only; exports are hidden to avoid duplication.
+2. **Adjust gain** – Drag the gain slider from 0 dB up to +48 dB for monitoring the binaural mix. Updates apply immediately through JNI to the native engine.
+3. **Toggle looping** – Use the loop button to restart playback at EOF. State persists across configuration changes and mirrors the native engine.
+4. **Watch the processing overlay** – Preprocessing or export operations surface progress in the shared overlay so you can track background work.
+5. **Export binaural audio** – Choose *Export* from the overflow menu to render a stereo mix while playback remains ready. Completed exports land in `/Documents/spcmicRecorder/Exports/`.
+6. **Delete recordings** – Use the overflow delete action to remove unwanted takes; confirmations prevent accidental loss.
 
-## Technical Notes
+## File Layout
 
-### USB Audio Behaviour
-- The app bypasses Android’s `AudioRecord` stack and talks to the USB device directly. We parse descriptors, program the clock source, set interface alt settings, and submit isochronous URBs over JNI.
-- The sample-rate picker lists only the rates advertised by the selected interface/alt setting. If a rate is absent (e.g. 44.1 kHz), the hardware likely reserves it for a different alt setting.
-- If the device rejects a rate change, use the *Reconnect* button to re-enumerate and request again.
+- `app/src/main/java/com/spcmic/recorder/RecordFragment.kt` – Recording UI and controls.
+- `app/src/main/java/com/spcmic/recorder/playback/PlaybackFragment.kt` – Playback UI, gain slider, loop toggle, export menu, and delete dialog.
+- `app/src/main/java/com/spcmic/recorder/playback/PlaybackViewModel.kt` – LiveData state for playback, looping, gain, exports, and the processing overlay.
+- `app/src/main/java/com/spcmic/recorder/playback/NativePlaybackEngine.kt` – Kotlin interface to the native engine via JNI.
+- `app/src/main/cpp/playback/` – C++ audio engine handling caching, gain staging, looping, and export rendering.
+- `app/src/main/res/layout/` – Material Design 3 layouts for recording and playback surfaces.
 
-### Performance Considerations
-- **Data rate**: 24-bit × 84 channels × 48 kHz ≈ 9.7 MB/s (~1 GB/minute). 96 kHz doubles the throughput.
-- Use fast storage (UFS 3.x / external SSD) and ensure >20 GB free before long sessions.
-- Monitor device thermals during extended recordings; consider active cooling for best stability.
+## Architecture Notes
 
-### Storage Requirements (rule of thumb)
-- **Per Minute @ 48 kHz**: ~1.0 GB
-- **Per Minute @ 96 kHz**: ~2.0 GB
-- **Per Hour @ 48 kHz**: ~60 GB
-
-## Development
-
-### Building from Source
-```bash
-git clone https://github.com/hectorC/Android_spcmic_recorder.git
-cd Android_spcmic_recorder
-./gradlew assembleDebug
-```
-
-### Key Components
-- `MainActivity.kt`: Main UI and app coordination with purple Material Design 3 theme
-- `USBAudioRecorder.kt`: Core audio recording functionality with auto-48kHz default
-- `LevelMeterView.kt`: Custom view for 84-channel level display (available but not currently visible in UI)
-- `MainViewModel.kt`: App state and data management
-- `native-lib.cpp`: JNI bridge between Kotlin and native C++ code
-- `usb_audio_interface.cpp`: USB audio engine with direct UAC2 communication and sample rate negotiation
-
-### Architecture
-- **MVVM Pattern**: Clean separation of UI, business logic, and data
-- **Kotlin Coroutines**: Efficient async audio processing
-- **Material Design 3**: Modern purple gradient theme with dark mode support
-- **Custom Views**: 84-channel meter available but not currently displayed in UI
-- **USB Host API**: Direct USB device communication via JNI/C++ native layer
-- **Native C++**: CMake-based build with USB Audio Class 2 implementation
-
-## Permissions
-
-The app requires the following permissions:
-- `RECORD_AUDIO`: For audio recording functionality
-- `WRITE_EXTERNAL_STORAGE`: For saving WAV files (Android 10 and below)
-- `READ_MEDIA_AUDIO`: For accessing audio files (Android 13+)
-- `WAKE_LOCK`: To prevent device sleep during recording
-- USB Host permissions for audio device access
+- **MVVM on the UI layer** with ViewModels, LiveData, and coroutines managing long-running tasks.
+- **Native USB pipeline** built with C++ and OpenSL ES for precise control over isochronous transfers and buffer timing.
+- **JNI bridge** exposing playback transport, gain control, and export hooks to Kotlin.
+- **Material Design 3** theming with light/dark support and accessibility-focused controls.
+- **Coroutines** orchestrating preprocessing, export rendering, and UI state updates without blocking the main thread.
 
 ## Troubleshooting
 
-### Common Issues
+| Issue | Suggested Fix |
+| --- | --- |
+| **Device not detected** | Confirm USB Host support, power the spcmic externally if needed, and tap *Reconnect* after granting permission. |
+| **Sample-rate request fails** | Some rates live on alternate USB interface settings. Reconnect and retry with a rate listed in the spinner. |
+| **Clipping latch stays red** | Stop the take, tap **Reset**, and restart recording. Investigate source gain if the issue repeats. |
+| **Large files** | At 48 kHz/84 ch expect ~1 GB per minute. Move files off-device promptly and ensure ≥20 GB free before long sessions. |
+| **Exports missing** | Check `/Documents/spcmicRecorder/Exports/` (not the recordings directory). |
 
-**USB Device Not Detected**
-- Verify your Android device supports USB Host/OTG.
-- Confirm the spcmic is receiving power and enumerates on other hosts.
-- Tap the **Reconnect** button to reclaim interfaces if Android Audio captures them first.
+## Roadmap
 
-**Sample Rate Change Rejected**
-- Some hardware exposes different rates on different alternate settings. If a request fails, tap **Reconnect** and retry at a supported rate (the UI shows the negotiated value).
-- The app auto-defaults to 48 kHz on launch, which is the most compatible rate for the spcmic hardware.
+- Wire up advanced meter visualizations for live diagnostics.
+- Expand export presets beyond the current binaural mix.
 
-**Recording Quality Issues**
-- Check the negotiated rate label; if it differs from your request, reconnect.
-- Ensure adequate storage bandwidth and free space.
-- Keep the device cool and avoid running heavy background apps.
+## License & Contributions
 
-**Large File Management**
-- WAV files are huge; transfer them off-device promptly.
-- Add `*.wav` to `.gitignore` to avoid committing them to version control.
-
-## License
-
-[Add your license information here]
-
-## Contributing
-
-[Add contribution guidelines here]
-
-## Support
-
-For technical support or questions about the spcmic hardware, please contact:
-[Add contact information]
+The project currently carries no formal license or contribution guidelines. Coordinate with the maintainers before redistributing binaries or submitting patches.
