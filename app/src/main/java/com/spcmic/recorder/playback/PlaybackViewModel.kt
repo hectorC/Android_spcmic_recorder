@@ -55,11 +55,14 @@ class PlaybackViewModel : ViewModel() {
     private val _totalDuration = MutableLiveData<Long>(0L)
     val totalDuration: LiveData<Long> = _totalDuration
 
-    private val _isPreprocessing = MutableLiveData(false)
-    val isPreprocessing: LiveData<Boolean> = _isPreprocessing
+    private val _isProcessing = MutableLiveData(false)
+    val isProcessing: LiveData<Boolean> = _isProcessing
 
-    private val _preprocessProgress = MutableLiveData(0)
-    val preprocessProgress: LiveData<Int> = _preprocessProgress
+    private val _processingProgress = MutableLiveData(0)
+    val processingProgress: LiveData<Int> = _processingProgress
+
+    private val _processingMessage = MutableLiveData(R.string.preprocessing_message)
+    val processingMessage: LiveData<Int> = _processingMessage
 
     private val _statusMessage = MutableLiveData<PlaybackMessage?>()
     val statusMessage: LiveData<PlaybackMessage?> = _statusMessage
@@ -90,11 +93,13 @@ class PlaybackViewModel : ViewModel() {
                     return@withContext emptyList<Recording>()
                 }
                 
-                appDir.listFiles { file ->
-                    file.isFile && file.name.endsWith(".wav", ignoreCase = true)
-                }?.mapNotNull { file ->
-                    WavMetadataParser.createRecording(file)
-                }?.sortedByDescending { it.dateTime } ?: emptyList()
+                appDir.listFiles()?.asSequence()
+                    ?.filter { file -> file.isFile && file.parentFile == appDir }
+                    ?.filter { file -> file.name.endsWith(".wav", ignoreCase = true) }
+                    ?.mapNotNull { file -> WavMetadataParser.createRecording(file) }
+                    ?.sortedByDescending { it.dateTime }
+                    ?.toList()
+                    ?: emptyList()
             }
             
             _recordings.value = recordingList
@@ -128,8 +133,9 @@ class PlaybackViewModel : ViewModel() {
                         _totalDuration.value = (durationSeconds * 1000).toLong()
                         _currentPosition.value = 0L
                         _isPlaying.value = false
-                        _isPreprocessing.value = false
-                        _preprocessProgress.value = if (reused) 100 else 0
+                        _isProcessing.value = false
+                        _processingProgress.value = if (reused) 100 else 0
+                        _processingMessage.value = R.string.preprocessing_message
                         if (reused) {
                             _statusMessage.value = PlaybackMessage(R.string.playback_cached_ready)
                         }
@@ -158,8 +164,9 @@ class PlaybackViewModel : ViewModel() {
         _isPlaying.value = false
         _currentPosition.value = 0L
         _totalDuration.value = 0L
-        _isPreprocessing.value = false
-        _preprocessProgress.value = 0
+    _isProcessing.value = false
+    _processingProgress.value = 0
+    _processingMessage.value = R.string.preprocessing_message
     }
 
     fun setPlaybackGain(gainDb: Float) {
@@ -228,31 +235,100 @@ class PlaybackViewModel : ViewModel() {
         _currentPosition.value = positionMs
     }
 
-    fun exportSelectedRecording(recording: Recording) {
-        val current = _selectedRecording.value
-        if (current == null || current.file != recording.file) {
-            _statusMessage.value = PlaybackMessage(R.string.export_select_recording)
-            return
-        }
-
-        val engine = playbackEngine ?: return
-
+    fun exportRecording(recording: Recording) {
         viewModelScope.launch {
-            val ready = ensurePreprocessed()
-            if (!ready) {
+            val assets = assetManager
+            val cacheDir = cacheDirectory
+            if (assets == null || cacheDir == null) {
+                _statusMessage.value = PlaybackMessage(R.string.export_failure)
                 return@launch
             }
 
-            val destination = withContext(Dispatchers.IO) {
-                val parent = recording.file.parentFile ?: return@withContext null
-                val baseName = recording.file.nameWithoutExtension
-                val exportFile = File(parent, "${baseName}_binaural.wav")
-                if (engine.exportPreRendered(exportFile.absolutePath)) exportFile else null
-            }
+            preprocessMutex.withLock {
+                _processingMessage.value = R.string.exporting_message
+                _processingProgress.value = 0
+                _isProcessing.value = true
 
-            _statusMessage.value = destination?.let {
-                PlaybackMessage(R.string.export_success, listOf(it.name))
-            } ?: PlaybackMessage(R.string.export_failure)
+                var success = false
+                var exportedFile: File? = null
+
+                try {
+                    val engine = NativePlaybackEngine()
+                    engine.setAssetManager(assets)
+                    engine.setCacheDirectory(cacheDir)
+
+                    try {
+                        val loadSuccess = withContext(Dispatchers.IO) {
+                            engine.loadFile(recording.file.absolutePath)
+                        }
+
+                        if (loadSuccess) {
+                            success = coroutineScope {
+                                val prepareDeferred = async(Dispatchers.IO) {
+                                    engine.preparePreRender()
+                                }
+
+                                val progressJob = launch {
+                                    while (isActive) {
+                                        val progress = engine.getPreRenderProgress().coerceIn(0, 100)
+                                        _processingProgress.value = progress
+
+                                        if (prepareDeferred.isCompleted && progress >= 100) {
+                                            break
+                                        }
+
+                                        delay(150)
+                                    }
+                                }
+
+                                val prepared = prepareDeferred.await()
+                                progressJob.cancelAndJoin()
+
+                                if (!prepared) {
+                                    _processingProgress.value = 0
+                                    return@coroutineScope false
+                                }
+
+                                _processingProgress.value = 100
+
+                                exportedFile = withContext(Dispatchers.IO) {
+                                    val recordingDir = recording.file.parentFile ?: return@withContext null
+                                    val exportDir = File(recordingDir, "Exports")
+                                    if (!exportDir.exists() && !exportDir.mkdirs()) {
+                                        return@withContext null
+                                    }
+
+                                    val baseName = recording.file.nameWithoutExtension
+                                    val exportFile = File(exportDir, "${baseName}_binaural.wav")
+                                    if (engine.exportPreRendered(exportFile.absolutePath)) exportFile else null
+                                }
+
+                                exportedFile != null
+                            }
+                        }
+                    } finally {
+                        engine.release()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to export recording", e)
+                    success = false
+                } finally {
+                    _processingProgress.value = if (success) 100 else 0
+                    _isProcessing.value = false
+                    _processingMessage.value = R.string.preprocessing_message
+                }
+
+                if (success) {
+                    rememberCachedSource(recording.file.absolutePath)
+                    val messageArg = exportedFile?.let { "Exports/${it.name}" }
+                    _statusMessage.value = PlaybackMessage(
+                        R.string.export_success,
+                        listOfNotNull(messageArg ?: exportedFile?.name)
+                    )
+                } else {
+                    _statusMessage.value = PlaybackMessage(R.string.export_failure)
+                }
+            }
         }
     }
     
@@ -326,6 +402,32 @@ class PlaybackViewModel : ViewModel() {
     _statusMessage.value = null
     }
 
+    fun deleteRecording(recording: Recording) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val deleted = runCatching {
+                if (recording.file.exists()) {
+                    recording.file.delete()
+                } else {
+                    false
+                }
+            }.getOrElse { throwable ->
+                Log.e(TAG, "Failed to delete recording", throwable)
+                false
+            }
+
+            if (deleted) {
+                if (_selectedRecording.value?.file == recording.file) {
+                    withContext(Dispatchers.Main) {
+                        clearSelection()
+                    }
+                }
+                scanRecordings()
+            } else {
+                _statusMessage.postValue(PlaybackMessage(R.string.delete_failed))
+            }
+        }
+    }
+
     private fun tryReuseCachedPreRender(recording: Recording): Boolean {
         val engine = playbackEngine ?: return false
         val cacheDir = cacheDirectory ?: return false
@@ -396,19 +498,20 @@ class PlaybackViewModel : ViewModel() {
     private suspend fun ensurePreprocessed(): Boolean {
         val engine = playbackEngine ?: return false
         if (engine.isPreRenderReady()) {
-            _preprocessProgress.value = 100
+            _processingProgress.value = 100
             return true
         }
 
         return preprocessMutex.withLock {
             if (engine.isPreRenderReady()) {
-                _preprocessProgress.value = 100
+                _processingProgress.value = 100
                 return@withLock true
             }
 
             try {
-                _isPreprocessing.value = true
-                _preprocessProgress.value = 0
+                _processingMessage.value = R.string.preprocessing_message
+                _isProcessing.value = true
+                _processingProgress.value = 0
 
                 val success = coroutineScope {
                     val prepareDeferred = async(Dispatchers.IO) {
@@ -418,7 +521,7 @@ class PlaybackViewModel : ViewModel() {
                     val progressJob = launch {
                         while (isActive) {
                             val progress = engine.getPreRenderProgress().coerceIn(0, 100)
-                            _preprocessProgress.value = progress
+                            _processingProgress.value = progress
 
                             if (prepareDeferred.isCompleted && progress >= 100) {
                                 break
@@ -432,9 +535,9 @@ class PlaybackViewModel : ViewModel() {
                     progressJob.cancelAndJoin()
 
                     if (result) {
-                        _preprocessProgress.value = 100
+                        _processingProgress.value = 100
                     } else {
-                        _preprocessProgress.value = 0
+                        _processingProgress.value = 0
                     }
 
                     result
@@ -454,7 +557,7 @@ class PlaybackViewModel : ViewModel() {
 
                 success
             } finally {
-                _isPreprocessing.value = false
+                _isProcessing.value = false
             }
         }
     }

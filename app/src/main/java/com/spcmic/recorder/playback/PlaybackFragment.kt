@@ -1,6 +1,7 @@
 package com.spcmic.recorder.playback
 
 import android.content.Context
+import android.app.AlertDialog
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -158,7 +159,7 @@ class PlaybackFragment : Fragment() {
             binding.playerControls.btnPlayPause.setImageResource(iconRes)
         }
 
-        viewModel.isPreprocessing.observe(viewLifecycleOwner) { processing ->
+        viewModel.isProcessing.observe(viewLifecycleOwner) { processing ->
             if (processing) {
                 binding.preprocessOverlay.bringToFront()
             }
@@ -173,7 +174,11 @@ class PlaybackFragment : Fragment() {
             }
         }
 
-        viewModel.preprocessProgress.observe(viewLifecycleOwner) { percent ->
+        viewModel.processingMessage.observe(viewLifecycleOwner) { messageRes ->
+            binding.tvPreprocessMessage.setText(messageRes)
+        }
+
+        viewModel.processingProgress.observe(viewLifecycleOwner) { percent ->
             binding.progressPreprocess.progress = percent
             binding.tvPreprocessPercent.text = getString(R.string.percent_format, percent)
         }
@@ -219,19 +224,11 @@ class PlaybackFragment : Fragment() {
             setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
                     R.id.action_delete -> {
-                        // TODO: Implement delete confirmation dialog
-                        true
-                    }
-                    R.id.action_share -> {
-                        // TODO: Implement share functionality
+                        confirmDelete(recording)
                         true
                     }
                     R.id.action_export_binaural -> {
-                        viewModel.exportSelectedRecording(recording)
-                        true
-                    }
-                    R.id.action_details -> {
-                        // TODO: Show file details dialog
+                        viewModel.exportRecording(recording)
                         true
                     }
                     else -> false
@@ -252,5 +249,16 @@ class PlaybackFragment : Fragment() {
         } else {
             getString(R.string.gain_value_format, gainDb)
         }
+    }
+
+    private fun confirmDelete(recording: Recording) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.delete)
+            .setMessage(R.string.delete_confirmation_message)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                viewModel.deleteRecording(recording)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 }
