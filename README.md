@@ -1,3 +1,5 @@
+**Note (written by a human):** Contains AI generated code and text descriptions (with a bit of AI hyperbole). This app is currently functional overall but it might be still unstable and contain buggs. Use at your own risk.
+
 # spcmic Recorder & Playback
 
 An Android app for capturing and reviewing the full 84-channel output of the spcmic array over USB-C. The project pairs a native USB audio engine with a Kotlin MVVM UI and Material Design 3 styling to support field recordings plus binaural playback.
