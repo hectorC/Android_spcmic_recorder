@@ -1,4 +1,4 @@
-**Note (written by a human):** Contains AI generated code and functionality description text (with a bit of AI hyperbole). This app is currently functional overall but it might be still unstable and contain buggs. Use at your own risk.
+**Note (written by a human):** Contains AI generated code and functionality description text (with a bit of AI hyperbole). This app is currently functional overall but it might be still unstable and contain bugs. Use at your own risk.
 
 # spcmic Recorder & Playback
 
