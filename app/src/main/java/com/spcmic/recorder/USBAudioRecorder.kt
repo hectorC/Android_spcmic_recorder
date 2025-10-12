@@ -8,7 +8,6 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
-import android.os.Environment
 import kotlinx.coroutines.*
 import java.io.*
 import java.text.SimpleDateFormat
@@ -236,9 +235,11 @@ class USBAudioRecorder(
             val timestamp = dateFormat.format(Date())
             val fileName = "spcmic_recording_$timestamp.wav"
             
-            val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-            val appDir = File(documentsDir, "SPCMicRecorder")
-            appDir.mkdirs()
+            val storageInfo = StorageLocationManager.getStorageInfo(context)
+            val appDir = storageInfo.directory
+            if (!appDir.exists()) {
+                appDir.mkdirs()
+            }
             val outputFile = File(appDir, fileName)
             
             android.util.Log.i("USBAudioRecorder", "Starting recording to: ${outputFile.absolutePath}")

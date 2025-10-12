@@ -47,6 +47,9 @@ class MainViewModel : ViewModel() {
 
     private val _recordingFileName = MutableLiveData<String?>(null)
     val recordingFileName: LiveData<String?> = _recordingFileName
+
+    private val _storagePath = MutableLiveData<String>()
+    val storagePath: LiveData<String> = _storagePath
     
     private var recordingJob: Job? = null
     private var currentUSBDevice: UsbDevice? = null
@@ -136,6 +139,10 @@ class MainViewModel : ViewModel() {
 
     fun setRecordingFileName(name: String?) {
         _recordingFileName.value = name
+    }
+
+    fun setStoragePath(path: String) {
+        _storagePath.value = path
     }
 
     private fun resetSampleRateState() {

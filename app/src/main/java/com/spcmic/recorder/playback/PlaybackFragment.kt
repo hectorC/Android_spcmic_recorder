@@ -15,6 +15,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.spcmic.recorder.R
+import com.spcmic.recorder.StorageLocationManager
 import com.spcmic.recorder.databinding.FragmentPlaybackBinding
 import java.io.File
 import kotlin.math.abs
@@ -53,12 +54,10 @@ class PlaybackFragment : Fragment() {
         }
         viewModel.setCacheDirectory(cacheDir.absolutePath)
         
+    initializeStorageLocation()
         setupRecyclerView()
         setupPlayerControls()
         observeViewModel()
-        
-        // Scan for recordings on start
-        viewModel.scanRecordings()
     }
     
     private fun setupRecyclerView() {
@@ -128,7 +127,7 @@ class PlaybackFragment : Fragment() {
             viewModel.setLooping(!currentlyLooping)
         }
     }
-    
+
     private fun observeViewModel() {
         // Observe recordings list
         viewModel.recordings.observe(viewLifecycleOwner) { recordings ->
@@ -229,6 +228,10 @@ class PlaybackFragment : Fragment() {
                 viewModel.clearStatusMessage()
             }
         }
+
+        viewModel.storagePath.observe(viewLifecycleOwner) { path ->
+            binding.tvPlaybackStoragePath.text = path
+        }
     }
     
     private fun showMoreOptionsMenu(recording: Recording, view: View) {
@@ -283,5 +286,18 @@ class PlaybackFragment : Fragment() {
         }
         binding.playerControls.btnLoop.setColorFilter(tintColor)
         binding.playerControls.btnLoop.alpha = if (looping) 1f else 0.8f
+    }
+
+    private fun initializeStorageLocation() {
+        val info = StorageLocationManager.getStorageInfo(requireContext())
+        viewModel.setRecordingsDirectory(info.directory)
+        binding.tvPlaybackStoragePath.text = info.displayPath
+        viewModel.scanRecordings()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Refresh in case the record tab updated the storage preference
+        initializeStorageLocation()
     }
 }

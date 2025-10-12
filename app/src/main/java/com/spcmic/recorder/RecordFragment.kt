@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -40,6 +41,7 @@ class RecordFragment : Fragment() {
     private var lastSuccessfulSampleRate = 48000
     private var recordingPulseAnimation: android.view.animation.Animation? = null
     private var clipWarningAnimation: android.view.animation.Animation? = null
+    private var currentStorageInfo: StorageLocationManager.StorageInfo? = null
     
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -49,6 +51,14 @@ class RecordFragment : Fragment() {
             initializeAudioRecorder()
         } else {
             Toast.makeText(requireContext(), "Audio recording permission is required", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private val storagePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            handleStorageSelection(uri)
         }
     }
     
@@ -69,6 +79,7 @@ class RecordFragment : Fragment() {
         lastSuccessfulSampleRate = viewModel.selectedSampleRate.value ?: 48000
         
         setupUI()
+        initializeStorageLocation()
         checkPermissions()
         checkBatteryOptimization()
         observeViewModel()
@@ -183,7 +194,18 @@ class RecordFragment : Fragment() {
             }
 
             updateClipIndicator(viewModel.isClipping.value ?: false)
+            btnChangeStorage.setOnClickListener {
+                val initial = currentStorageInfo?.treeUri
+                storagePickerLauncher.launch(initial)
+            }
         }
+    }
+
+    private fun initializeStorageLocation() {
+        val info = StorageLocationManager.getStorageInfo(requireContext())
+        currentStorageInfo = info
+        viewModel.setStoragePath(info.displayPath)
+        binding.tvStoragePath.text = info.displayPath
     }
     
     private fun observeViewModel() {
@@ -278,6 +300,27 @@ class RecordFragment : Fragment() {
 
         viewModel.continuousSampleRateRange.observe(viewLifecycleOwner) {
             updateSampleRateSupportText()
+        }
+
+        viewModel.storagePath.observe(viewLifecycleOwner) { path ->
+            binding.tvStoragePath.text = path
+        }
+    }
+
+    private fun handleStorageSelection(uri: Uri) {
+        try {
+            requireContext().contentResolver.takePersistableUriPermission(uri, StorageLocationManager.PERMISSION_FLAGS)
+        } catch (_: SecurityException) {
+            // Permission may already be granted
+        }
+
+        val updated = StorageLocationManager.updateStorageInfo(requireContext(), uri)
+        if (updated != null) {
+            currentStorageInfo = updated
+            viewModel.setStoragePath(updated.displayPath)
+            Toast.makeText(requireContext(), getString(R.string.storage_location_updated), Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(requireContext(), getString(R.string.storage_location_failed), Toast.LENGTH_SHORT).show()
         }
     }
     

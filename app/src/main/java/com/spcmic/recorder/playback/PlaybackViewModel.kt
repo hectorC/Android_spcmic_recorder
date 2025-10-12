@@ -1,10 +1,10 @@
 package com.spcmic.recorder.playback
 
 import android.content.SharedPreferences
-import android.os.Environment
 import android.util.Log
 import android.content.res.AssetManager
 import com.spcmic.recorder.R
+import com.spcmic.recorder.StorageLocationManager
 import androidx.annotation.StringRes
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -80,6 +80,16 @@ class PlaybackViewModel : ViewModel() {
 
     private val _isLooping = MutableLiveData(false)
     val isLooping: LiveData<Boolean> = _isLooping
+
+    private val _storagePath = MutableLiveData<String>()
+    val storagePath: LiveData<String> = _storagePath
+
+    private var recordingsDirectory: File? = null
+
+    fun setRecordingsDirectory(directory: File) {
+        recordingsDirectory = directory
+        _storagePath.value = directory.absolutePath
+    }
     
     /**
      * Scan directory for recordings
@@ -87,17 +97,20 @@ class PlaybackViewModel : ViewModel() {
     fun scanRecordings() {
         viewModelScope.launch {
             _isLoading.value = true
+            val targetDir = recordingsDirectory
+            if (targetDir == null) {
+                _recordings.value = emptyList()
+                _isLoading.value = false
+                return@launch
+            }
             
             val recordingList = withContext(Dispatchers.IO) {
-                val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-                val appDir = File(documentsDir, "SPCMicRecorder")
-                
-                if (!appDir.exists()) {
-                    return@withContext emptyList<Recording>()
+                if (!targetDir.exists()) {
+                    targetDir.mkdirs()
                 }
-                
-                appDir.listFiles()?.asSequence()
-                    ?.filter { file -> file.isFile && file.parentFile == appDir }
+
+                targetDir.listFiles()?.asSequence()
+                    ?.filter { file -> file.isFile && file.parentFile == targetDir }
                     ?.filter { file -> file.name.endsWith(".wav", ignoreCase = true) }
                     ?.mapNotNull { file -> WavMetadataParser.createRecording(file) }
                     ?.sortedByDescending { it.dateTime }
@@ -302,10 +315,7 @@ class PlaybackViewModel : ViewModel() {
 
                                 exportedFile = withContext(Dispatchers.IO) {
                                     val recordingDir = recording.file.parentFile ?: return@withContext null
-                                    val exportDir = File(recordingDir, "Exports")
-                                    if (!exportDir.exists() && !exportDir.mkdirs()) {
-                                        return@withContext null
-                                    }
+                                    val exportDir = StorageLocationManager.ensureExportsDirectory(recordingDir)
 
                                     val baseName = recording.file.nameWithoutExtension
                                     val exportFile = File(exportDir, "${baseName}_binaural.wav")
