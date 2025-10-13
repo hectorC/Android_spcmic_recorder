@@ -10,11 +10,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -ffast-math -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -g")
 
-# Enable NEON optimizations for ARM
-if(${ANDROID_ABI} STREQUAL "arm64-v8a")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfpu=neon")
-endif()
-
 # Recording library source files (original)
 set(RECORDING_SOURCES
     src/main/cpp/native-lib.cpp

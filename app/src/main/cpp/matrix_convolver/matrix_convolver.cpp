@@ -3,6 +3,11 @@
 
 #include <algorithm>
 #include <android/log.h>
+#include <chrono>
+#include <mutex>
+#if defined(__ARM_NEON__) || defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 
 #define LOG_TAG "MatrixConvolver"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
@@ -12,6 +17,41 @@
 namespace {
 constexpr int kNumChannels = 84;
 constexpr std::complex<float> kZeroComplex{0.0f, 0.0f};
+using Clock = std::chrono::steady_clock;
+
+struct AccumTimingState {
+    long long totalMicros = 0;
+    int blocks = 0;
+};
+
+std::mutex& accumulationMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+AccumTimingState& accumulationState() {
+    static AccumTimingState state;
+    return state;
+}
+
+void recordAccumulation(long long micros) {
+    if (micros <= 0) {
+        return;
+    }
+
+    auto& state = accumulationState();
+    auto& mutex = accumulationMutex();
+    std::lock_guard<std::mutex> lock(mutex);
+    state.totalMicros += micros;
+    state.blocks += 1;
+    constexpr int kLogInterval = 32;
+    if (state.blocks >= kLogInterval) {
+        const double avgMs = static_cast<double>(state.totalMicros) / static_cast<double>(state.blocks) / 1000.0;
+        LOGD("Accumulation avg %.3f ms over %d blocks", avgMs, state.blocks);
+        state.totalMicros = 0;
+        state.blocks = 0;
+    }
+}
 
 #if defined(__clang__)
 #define SPCMIC_VECTORIZE _Pragma("clang loop vectorize(enable)")
@@ -23,13 +63,53 @@ inline void accumulatePartition(const std::vector<std::complex<float>>& inputSpe
                                 const std::vector<std::complex<float>>& irSpectrum,
                                 std::vector<std::complex<float>>& accumulator) {
     const int bins = static_cast<int>(accumulator.size());
-    const auto* input = inputSpectrum.data();
-    const auto* ir = irSpectrum.data();
-    auto* acc = accumulator.data();
+    const float* input = reinterpret_cast<const float*>(inputSpectrum.data());
+    const float* ir = reinterpret_cast<const float*>(irSpectrum.data());
+    float* acc = reinterpret_cast<float*>(accumulator.data());
+
+#if defined(__ARM_NEON__) || defined(__ARM_NEON)
+    int bin = 0;
+    const int floatStride = 2; // real + imag per complex sample
+    for (; bin + 3 < bins; bin += 4) {
+        const float* inputPtr = input + bin * floatStride;
+        const float* irPtr = ir + bin * floatStride;
+        float* accPtr = acc + bin * floatStride;
+
+        float32x4x2_t inputVec = vld2q_f32(inputPtr);
+        float32x4x2_t irVec = vld2q_f32(irPtr);
+        float32x4x2_t accVec = vld2q_f32(accPtr);
+
+        float32x4_t rr = vmulq_f32(inputVec.val[0], irVec.val[0]);
+        float32x4_t ii = vmulq_f32(inputVec.val[1], irVec.val[1]);
+        float32x4_t ri = vmulq_f32(inputVec.val[0], irVec.val[1]);
+        float32x4_t irPart = vmulq_f32(inputVec.val[1], irVec.val[0]);
+
+        float32x4_t real = vsubq_f32(rr, ii);
+        float32x4_t imag = vaddq_f32(ri, irPart);
+
+        accVec.val[0] = vaddq_f32(accVec.val[0], real);
+        accVec.val[1] = vaddq_f32(accVec.val[1], imag);
+
+        vst2q_f32(accPtr, accVec);
+    }
+
+    for (; bin < bins; ++bin) {
+        const int offset = bin * floatStride;
+        const float aRe = input[offset];
+        const float aIm = input[offset + 1];
+        const float bRe = ir[offset];
+        const float bIm = ir[offset + 1];
+        const float real = aRe * bRe - aIm * bIm;
+        const float imag = aRe * bIm + aIm * bRe;
+        acc[offset] += real;
+        acc[offset + 1] += imag;
+    }
+#else
     SPCMIC_VECTORIZE
     for (int bin = 0; bin < bins; ++bin) {
-        acc[bin] += input[bin] * ir[bin];
+        accumulator[bin] += inputSpectrum[bin] * irSpectrum[bin];
     }
+#endif
 }
 }
 
@@ -162,6 +242,8 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
 
     const int numChannels = impulseResponse_->numInputChannels;
 
+    long long accumulateMicros = 0;
+
     if (singlePartition_) {
         for (int ch = 0; ch < numChannels; ++ch) {
             auto& spectrum = channelStates_[ch].history[0];
@@ -176,8 +258,10 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
             const auto& leftIR = channelIRs_[ch].partitionsLeft[0];
             const auto& rightIR = channelIRs_[ch].partitionsRight[0];
 
+            const auto accumStart = Clock::now();
             accumulatePartition(spectrum, leftIR, freqAccumLeft_);
             accumulatePartition(spectrum, rightIR, freqAccumRight_);
+            accumulateMicros += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - accumStart).count();
         }
     } else {
         for (int ch = 0; ch < numChannels; ++ch) {
@@ -193,6 +277,7 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
 
             const ChannelIR& channelIR = channelIRs_[ch];
 
+            const auto accumStart = Clock::now();
             for (int p = 0; p < numPartitions_; ++p) {
                 const int histIndex = (historyWritePos_ - p + numPartitions_) % numPartitions_;
                 const auto& inputSpectrum = historyBlocks[histIndex];
@@ -202,6 +287,7 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
                 accumulatePartition(inputSpectrum, leftIR, freqAccumLeft_);
                 accumulatePartition(inputSpectrum, rightIR, freqAccumRight_);
             }
+            accumulateMicros += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - accumStart).count();
         }
 
         historyWritePos_ = (historyWritePos_ + 1) % numPartitions_;
@@ -222,6 +308,8 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
         overlapLeft_[frame] = freqAccumLeft_[frame + blockSize_].real();
         overlapRight_[frame] = freqAccumRight_[frame + blockSize_].real();
     }
+
+    recordAccumulation(accumulateMicros);
 }
 
 void MatrixConvolver::fallbackDownmix(const float* input, float* output, int numFrames) const {
