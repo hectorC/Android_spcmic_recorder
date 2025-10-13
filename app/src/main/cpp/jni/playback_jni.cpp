@@ -118,6 +118,30 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeLoadFile(
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeLoadFileFromDescriptor(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong engineHandle,
+    jint fd,
+    jstring displayPath) {
+
+    PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
+    if (!engine) {
+        LOGE("Invalid engine handle");
+        return JNI_FALSE;
+    }
+
+    const char* pathChars = env->GetStringUTFChars(displayPath, nullptr);
+    std::string path(pathChars ? pathChars : "descriptor");
+    if (pathChars) {
+        env->ReleaseStringUTFChars(displayPath, pathChars);
+    }
+
+    bool success = engine->loadFileFromDescriptor(fd, path);
+    return success ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativePlay(
     JNIEnv* env,
     jobject /* this */,

@@ -1,8 +1,10 @@
 #pragma once
 
 #include <string>
-#include <fstream>
 #include <cstdint>
+#include <cstdio>
+#include <cstddef>
+#include <sys/types.h>
 
 class WAVWriter {
 public:
@@ -10,14 +12,16 @@ public:
     ~WAVWriter();
     
     bool open(const std::string& filename, int sampleRate, int channels, int bitsPerSample);
+    bool openFromFd(int fd, int sampleRate, int channels, int bitsPerSample);
     bool writeData(const uint8_t* data, size_t size);
     void close();
     
-    bool isOpen() const { return m_file.is_open(); }
+    bool isOpen() const { return m_file != nullptr; }
     size_t getBytesWritten() const { return m_dataSize; }
     
 private:
-    std::ofstream m_file;
+    FILE* m_file;
+    int m_ownedFd;
     std::string m_filename;
     
     // WAV format parameters
@@ -30,7 +34,7 @@ private:
     
     // File tracking
     size_t m_dataSize;
-    std::streampos m_dataChunkPos;
+    off_t m_dataChunkPos;
     
     // WAV file structure
     struct WAVHeader {
@@ -54,7 +58,12 @@ private:
         uint32_t dataSize;        // Data size
     } __attribute__((packed));
     
+    static constexpr off_t RIFF_SIZE_OFFSET = offsetof(WAVHeader, riffSize);
+    static constexpr off_t DATA_SIZE_OFFSET = offsetof(WAVHeader, dataSize);
+
     bool writeHeader();
     bool updateHeader();
     void initializeHeader(WAVHeader& header);
+    void initializeFormat(int sampleRate, int channels, int bitsPerSample);
+    void resetState();
 };

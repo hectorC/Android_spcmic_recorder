@@ -81,7 +81,7 @@ class RecordingListAdapter(
     
     private class RecordingDiffCallback : DiffUtil.ItemCallback<Recording>() {
         override fun areItemsTheSame(oldItem: Recording, newItem: Recording): Boolean {
-            return oldItem.file.absolutePath == newItem.file.absolutePath
+            return oldItem.uniqueId == newItem.uniqueId
         }
         
         override fun areContentsTheSame(oldItem: Recording, newItem: Recording): Boolean {

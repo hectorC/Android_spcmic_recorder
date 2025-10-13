@@ -50,6 +50,7 @@ public:
      * @return true if file opened successfully
      */
     bool open(const std::string& filePath);
+    bool openFromFd(int fd, const std::string& displayPath);
 
     /**
      * Close the current file

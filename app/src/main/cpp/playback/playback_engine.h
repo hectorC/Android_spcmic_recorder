@@ -39,6 +39,7 @@ public:
      * @return true if loaded successfully
      */
     bool loadFile(const std::string& filePath);
+    bool loadFileFromDescriptor(int fd, const std::string& displayPath);
 
     /**
      * Start playback

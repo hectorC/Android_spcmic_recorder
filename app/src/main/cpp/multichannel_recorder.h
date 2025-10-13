@@ -5,6 +5,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <functional>
 #include "usb_audio_interface.h"
 #include "wav_writer.h"
 
@@ -14,6 +15,7 @@ public:
     ~MultichannelRecorder();
     
     bool startRecording(const std::string& outputPath);
+    bool startRecordingWithFd(int fd, const std::string& displayPath);
     bool stopRecording();
     bool isRecording() const { return m_isRecording.load(); }
     
@@ -71,4 +73,8 @@ private:
     float normalizeLevel(int32_t sample);
 
     size_t m_bufferSize;
+
+    bool startRecordingInternal(
+        const std::string& destinationLabel,
+        const std::function<bool(WAVWriter*)>& openWriter);
 };

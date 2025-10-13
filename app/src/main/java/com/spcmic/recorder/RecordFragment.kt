@@ -22,6 +22,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import com.spcmic.recorder.databinding.FragmentRecordBinding
@@ -87,7 +88,7 @@ class RecordFragment : Fragment() {
     
     fun handleUsbIntent(intent: Intent) {
         if (UsbManager.ACTION_USB_DEVICE_ATTACHED == intent.action) {
-            val usbDevice: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+            val usbDevice: UsbDevice? = IntentCompat.getParcelableExtra(intent, UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
             usbDevice?.let { device ->
                 Log.i("RecordFragment", "USB device attached: ${device.deviceName} (${device.manufacturerName} ${device.productName})")
                 

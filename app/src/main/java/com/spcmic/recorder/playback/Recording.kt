@@ -1,12 +1,17 @@
 package com.spcmic.recorder.playback
 
+import android.content.Context
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import java.io.File
 
 /**
  * Data class representing a recorded audio file with its metadata
  */
 data class Recording(
-    val file: File,
+    val file: File?,
+    val documentUri: Uri?,
+    val displayPath: String,
     val fileName: String,
     val dateTime: Long,
     val durationMs: Long,
@@ -16,6 +21,15 @@ data class Recording(
 ) {
     val fileSizeMB: Float
         get() = fileSizeBytes / (1024f * 1024f)
+
+    val absolutePath: String?
+        get() = file?.absolutePath ?: displayPath
+
+    val uniqueId: String
+        get() = absolutePath ?: documentUri?.toString() ?: fileName
+
+    val cacheKey: String?
+        get() = file?.absolutePath ?: documentUri?.toString() ?: displayPath.takeIf { it.isNotBlank() }
     
     val durationSeconds: Int
         get() = (durationMs / 1000).toInt()
@@ -37,4 +51,20 @@ data class Recording(
             fileSizeMB >= 1 -> String.format("%.1f MB", fileSizeMB)
             else -> String.format("%.0f KB", fileSizeBytes / 1024f)
         }
+
+    fun delete(context: Context): Boolean {
+        file?.let {
+            if (it.exists() && it.delete()) {
+                return true
+            }
+        }
+
+        documentUri?.let {
+            val document = DocumentFile.fromSingleUri(context, it)
+            if (document != null && document.isFile) {
+                return document.delete()
+            }
+        }
+        return false
+    }
 }

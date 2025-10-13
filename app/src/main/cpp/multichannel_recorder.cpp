@@ -37,69 +37,21 @@ MultichannelRecorder::~MultichannelRecorder() {
 }
 
 bool MultichannelRecorder::startRecording(const std::string& outputPath) {
-    if (m_isRecording.load()) {
-        LOGE("Recording already in progress");
-        return false;
-    }
-    
-    if (!m_audioInterface) {
-        LOGE("No audio interface available");
-        return false;
-    }
-    
-    // Start USB audio streaming first so the device can negotiate its actual sample rate
-    if (!m_audioInterface->startStreaming()) {
-        LOGE("Failed to start USB audio streaming");
-        return false;
-    }
+    return startRecordingInternal(
+        outputPath,
+        [this, &outputPath](WAVWriter* writer) {
+            return writer->open(outputPath, m_sampleRate, CHANNEL_COUNT, BYTES_PER_SAMPLE * 8);
+        }
+    );
+}
 
-    int effectiveRate = m_audioInterface->getEffectiveSampleRateRounded();
-    if (effectiveRate > 0) {
-        m_sampleRate = effectiveRate;
-    }
-
-    LOGI("Starting recording to: %s (sampleRate=%d Hz)", outputPath.c_str(), m_sampleRate);
-    
-    // Create WAV writer using the negotiated sample rate
-    if (m_wavWriter) {
-        delete m_wavWriter;
-    }
-    
-    m_wavWriter = new WAVWriter();
-    if (!m_wavWriter->open(outputPath, m_sampleRate, CHANNEL_COUNT, BYTES_PER_SAMPLE * 8)) {
-        LOGE("Failed to create WAV file: %s", outputPath.c_str());
-        delete m_wavWriter;
-        m_wavWriter = nullptr;
-        m_audioInterface->stopStreaming();
-        return false;
-    }
-
-    const size_t frameSize = static_cast<size_t>(CHANNEL_COUNT) * BYTES_PER_SAMPLE;
-    size_t recommendedSize = m_audioInterface->getRecommendedBufferSize();
-    if (recommendedSize == 0) {
-        recommendedSize = DEFAULT_BUFFER_SIZE;
-    }
-    if (recommendedSize < frameSize) {
-        recommendedSize = frameSize;
-    }
-    if (recommendedSize % frameSize != 0) {
-        recommendedSize = ((recommendedSize + frameSize - 1) / frameSize) * frameSize;
-    }
-    m_bufferSize = recommendedSize;
-
-    LOGI("Recording buffer size configured: %zu bytes (frameSize=%zu)", m_bufferSize, frameSize);
-    
-    // Reset recording state
-    m_totalSamples = 0;
-    m_startTime = std::chrono::high_resolution_clock::now();
-    m_clipDetected.store(false);
-    
-    // Start recording thread
-    m_isRecording.store(true);
-    m_recordingThread = std::thread(&MultichannelRecorder::recordingThreadFunction, this);
-    
-    LOGI("Recording started successfully");
-    return true;
+bool MultichannelRecorder::startRecordingWithFd(int fd, const std::string& displayPath) {
+    return startRecordingInternal(
+        displayPath,
+        [this, fd](WAVWriter* writer) {
+            return writer->openFromFd(fd, m_sampleRate, CHANNEL_COUNT, BYTES_PER_SAMPLE * 8);
+        }
+    );
 }
 
 bool MultichannelRecorder::stopRecording() {
@@ -332,4 +284,69 @@ double MultichannelRecorder::getRecordingDuration() const {
 
 void MultichannelRecorder::resetClipIndicator() {
     m_clipDetected.store(false);
+}
+
+bool MultichannelRecorder::startRecordingInternal(
+    const std::string& destinationLabel,
+    const std::function<bool(WAVWriter*)>& openWriter) {
+
+    if (m_isRecording.load()) {
+        LOGE("Recording already in progress");
+        return false;
+    }
+
+    if (!m_audioInterface) {
+        LOGE("No audio interface available");
+        return false;
+    }
+
+    if (!m_audioInterface->startStreaming()) {
+        LOGE("Failed to start USB audio streaming");
+        return false;
+    }
+
+    int effectiveRate = m_audioInterface->getEffectiveSampleRateRounded();
+    if (effectiveRate > 0) {
+        m_sampleRate = effectiveRate;
+    }
+
+    LOGI("Starting recording to: %s (sampleRate=%d Hz)", destinationLabel.c_str(), m_sampleRate);
+
+    if (m_wavWriter) {
+        delete m_wavWriter;
+    }
+
+    m_wavWriter = new WAVWriter();
+    if (!openWriter(m_wavWriter)) {
+        LOGE("Failed to prepare WAV destination: %s", destinationLabel.c_str());
+        delete m_wavWriter;
+        m_wavWriter = nullptr;
+        m_audioInterface->stopStreaming();
+        return false;
+    }
+
+    const size_t frameSize = static_cast<size_t>(CHANNEL_COUNT) * BYTES_PER_SAMPLE;
+    size_t recommendedSize = m_audioInterface->getRecommendedBufferSize();
+    if (recommendedSize == 0) {
+        recommendedSize = DEFAULT_BUFFER_SIZE;
+    }
+    if (recommendedSize < frameSize) {
+        recommendedSize = frameSize;
+    }
+    if (recommendedSize % frameSize != 0) {
+        recommendedSize = ((recommendedSize + frameSize - 1) / frameSize) * frameSize;
+    }
+    m_bufferSize = recommendedSize;
+
+    LOGI("Recording buffer size configured: %zu bytes (frameSize=%zu)", m_bufferSize, frameSize);
+
+    m_totalSamples = 0;
+    m_startTime = std::chrono::high_resolution_clock::now();
+    m_clipDetected.store(false);
+
+    m_isRecording.store(true);
+    m_recordingThread = std::thread(&MultichannelRecorder::recordingThreadFunction, this);
+
+    LOGI("Recording started successfully");
+    return true;
 }

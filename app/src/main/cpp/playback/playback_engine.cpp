@@ -144,6 +144,80 @@ bool PlaybackEngine::loadFile(const std::string& filePath) {
     return true;
 }
 
+bool PlaybackEngine::loadFileFromDescriptor(int fd, const std::string& displayPath) {
+    audioOutput_->stop();
+
+    clearPreRenderedState();
+    sourceFilePath_ = displayPath;
+
+    if (state_ != State::IDLE) {
+        stop();
+    }
+
+    int32_t numChannels = 0;
+    int32_t sampleRate = 0;
+    int32_t bitsPerSample = 0;
+    double durationSeconds = 0.0;
+    int64_t totalFrames = 0;
+
+    {
+        std::lock_guard<std::mutex> lock(fileMutex_);
+
+        if (!wavReader_.openFromFd(fd, displayPath)) {
+            LOGE("Failed to open descriptor for playback: %s", displayPath.c_str());
+            return false;
+        }
+
+        numChannels = wavReader_.getNumChannels();
+        if (numChannels != 84) {
+            LOGE("Expected 84 channels, got %d", numChannels);
+            wavReader_.close();
+            return false;
+        }
+
+        sampleRate = wavReader_.getSampleRate();
+        bitsPerSample = wavReader_.getBitsPerSample();
+        durationSeconds = wavReader_.getDurationSeconds();
+        totalFrames = wavReader_.getTotalFrames();
+        sourceSampleRate_ = sampleRate;
+        sourceBitsPerSample_ = bitsPerSample;
+        sourceNumChannels_ = numChannels;
+    }
+
+    impulseResponseLoaded_ = loadImpulseResponse(sampleRate);
+    {
+        std::lock_guard<std::mutex> lock(fileMutex_);
+        wavReader_.seek(0);
+    }
+
+    LOGD("=== PLAYBACK ENGINE SETUP (FD) ===");
+    LOGD("Descriptor: %s", displayPath.c_str());
+    LOGD("Channels: %d", numChannels);
+    LOGD("Sample rate: %d Hz", sampleRate);
+    LOGD("Bit depth: %d", bitsPerSample);
+    LOGD("Duration: %.2f seconds", durationSeconds);
+    LOGD("Total frames: %lld", (long long)totalFrames);
+    LOGD("Buffer size: %d frames", BUFFER_FRAMES);
+
+    auto callback = [this](float* buffer, int32_t numFrames) {
+        this->audioCallback(buffer, numFrames);
+    };
+
+    if (!audioOutput_->initialize(sampleRate, BUFFER_FRAMES, callback)) {
+        LOGE("Failed to initialize audio output for descriptor playback");
+        std::lock_guard<std::mutex> lock(fileMutex_);
+        wavReader_.close();
+        return false;
+    }
+
+    playbackCompleted_ = false;
+    state_ = State::STOPPED;
+
+    LOGD("Descriptor loaded successfully");
+
+    return true;
+}
+
 void PlaybackEngine::setAssetManager(AAssetManager* manager) {
     assetManager_ = manager;
     irLoader_.setAssetManager(manager);

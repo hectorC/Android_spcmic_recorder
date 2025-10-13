@@ -1,15 +1,17 @@
-package com.spcmic.recorder.playback
+﻿package com.spcmic.recorder.playback
 
+import android.content.Context
 import android.content.SharedPreferences
-import android.util.Log
 import android.content.res.AssetManager
-import com.spcmic.recorder.R
-import com.spcmic.recorder.StorageLocationManager
+import android.util.Log
 import androidx.annotation.StringRes
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spcmic.recorder.R
+import com.spcmic.recorder.StorageLocationManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -18,41 +20,46 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * ViewModel for playback screen
+ * ViewModel for playback screen that supports both file-system and SAF storage.
  */
 class PlaybackViewModel : ViewModel() {
     companion object {
-    private const val TAG = "PlaybackViewModel"
-    const val PREFS_NAME = "playback_cache_prefs"
+        private const val TAG = "PlaybackViewModel"
+        const val PREFS_NAME = "playback_cache_prefs"
         private const val PREF_LAST_CACHE_SOURCE = "last_cached_source"
         private const val CACHE_FILE_NAME = "playback_cache.wav"
     }
-    
+
+    private sealed interface ExportOutcome {
+        data class Local(val file: File) : ExportOutcome
+        data class Document(val document: DocumentFile) : ExportOutcome
+    }
+
     private val _recordings = MutableLiveData<List<Recording>>(emptyList())
     val recordings: LiveData<List<Recording>> = _recordings
-    
-    private val _isLoading = MutableLiveData<Boolean>(false)
+
+    private val _isLoading = MutableLiveData(false)
     val isLoading: LiveData<Boolean> = _isLoading
-    
+
     private val _selectedRecording = MutableLiveData<Recording?>()
     val selectedRecording: LiveData<Recording?> = _selectedRecording
-    
-    private val _selectedIRPreset = MutableLiveData<IRPreset>(IRPreset.BINAURAL)
+
+    private val _selectedIRPreset = MutableLiveData(IRPreset.BINAURAL)
     val selectedIRPreset: LiveData<IRPreset> = _selectedIRPreset
-    
-    private val _isPlaying = MutableLiveData<Boolean>(false)
+
+    private val _isPlaying = MutableLiveData(false)
     val isPlaying: LiveData<Boolean> = _isPlaying
-    
-    private val _currentPosition = MutableLiveData<Long>(0L)
+
+    private val _currentPosition = MutableLiveData(0L)
     val currentPosition: LiveData<Long> = _currentPosition
-    
-    private val _totalDuration = MutableLiveData<Long>(0L)
+
+    private val _totalDuration = MutableLiveData(0L)
     val totalDuration: LiveData<Long> = _totalDuration
 
     private val _isProcessing = MutableLiveData(false)
@@ -66,14 +73,6 @@ class PlaybackViewModel : ViewModel() {
 
     private val _statusMessage = MutableLiveData<PlaybackMessage?>()
     val statusMessage: LiveData<PlaybackMessage?> = _statusMessage
-    
-    // Native playback engine
-    private var playbackEngine: NativePlaybackEngine? = null
-    private var positionUpdateJob: Job? = null
-    private var assetManager: AssetManager? = null
-    private var cacheDirectory: String? = null
-    private var preferences: SharedPreferences? = null
-    private val preprocessMutex = Mutex()
 
     private val _playbackGainDb = MutableLiveData(0f)
     val playbackGainDb: LiveData<Float> = _playbackGainDb
@@ -84,106 +83,171 @@ class PlaybackViewModel : ViewModel() {
     private val _storagePath = MutableLiveData<String>()
     val storagePath: LiveData<String> = _storagePath
 
-    private var recordingsDirectory: File? = null
+    private var playbackEngine: NativePlaybackEngine? = null
+    private var positionUpdateJob: Job? = null
+    private var assetManager: AssetManager? = null
+    private var cacheDirectory: String? = null
+    private var preferences: SharedPreferences? = null
+    private val preprocessMutex = Mutex()
 
-    fun setRecordingsDirectory(directory: File) {
-        recordingsDirectory = directory
-        _storagePath.value = directory.absolutePath
+    private var appContext: Context? = null
+    private var storageInfo: StorageLocationManager.StorageInfo? = null
+
+    fun attachContext(context: Context) {
+        appContext = context.applicationContext
     }
-    
-    /**
-     * Scan directory for recordings
-     */
+
+    fun setAssetManager(manager: AssetManager) {
+        assetManager = manager
+        playbackEngine?.setAssetManager(manager)
+    }
+
+    fun setCacheDirectory(path: String) {
+        cacheDirectory = path
+        playbackEngine?.setCacheDirectory(path)
+    }
+
+    fun setPreferences(prefs: SharedPreferences) {
+        preferences = prefs
+    }
+
+    fun updateStorageLocation(info: StorageLocationManager.StorageInfo) {
+        storageInfo = info
+        _storagePath.value = info.displayPath
+    }
+
     fun scanRecordings() {
         viewModelScope.launch {
             _isLoading.value = true
-            val targetDir = recordingsDirectory
-            if (targetDir == null) {
-                _recordings.value = emptyList()
-                _isLoading.value = false
-                return@launch
-            }
-            
-            val recordingList = withContext(Dispatchers.IO) {
-                if (!targetDir.exists()) {
-                    targetDir.mkdirs()
+            val info = storageInfo
+            val context = appContext
+            val recordingList = if (info == null) {
+                emptyList()
+            } else {
+                withContext(Dispatchers.IO) {
+                    if (info.treeUri == null) {
+                        scanFileDirectory(info.directory)
+                    } else {
+                        if (context == null) emptyList() else scanDocumentTree(context, info)
+                    }
                 }
-
-                targetDir.listFiles()?.asSequence()
-                    ?.filter { file -> file.isFile && file.parentFile == targetDir }
-                    ?.filter { file -> file.name.endsWith(".wav", ignoreCase = true) }
-                    ?.mapNotNull { file -> WavMetadataParser.createRecording(file) }
-                    ?.sortedByDescending { it.dateTime }
-                    ?.toList()
-                    ?: emptyList()
             }
-            
+
             _recordings.value = recordingList
             _isLoading.value = false
         }
     }
-    
-    /**
-     * Select a recording for playback
-     */
+
+    private fun scanFileDirectory(directory: File): List<Recording> {
+        if (!directory.exists()) {
+            directory.mkdirs()
+        }
+
+        return directory.listFiles()?.asSequence()
+            ?.filter { file -> file.isFile && file.name.endsWith(".wav", ignoreCase = true) }
+            ?.mapNotNull { file -> WavMetadataParser.createRecording(file) }
+            ?.sortedByDescending { it.dateTime }
+            ?.toList()
+            ?: emptyList()
+    }
+
+    private fun scanDocumentTree(context: Context, info: StorageLocationManager.StorageInfo): List<Recording> {
+        val root = StorageLocationManager.getDocumentTree(context, info.treeUri) ?: return emptyList()
+        val documents = root.listFiles()
+
+        return documents.asSequence()
+            .filter { doc -> doc.isFile && (doc.name?.endsWith(".wav", ignoreCase = true) == true) }
+            .mapNotNull { doc ->
+                val absolutePath = StorageLocationManager.documentUriToAbsolutePath(context, doc.uri)
+                val fallbackFile = absolutePath?.let { File(it) }?.takeIf { it.exists() }
+                val displayPath = absolutePath ?: doc.uri.toString()
+                WavMetadataParser.createRecording(
+                    context = context,
+                    documentFile = doc,
+                    fallbackFile = fallbackFile,
+                    displayPath = displayPath
+                )
+            }
+            .sortedByDescending { it.dateTime }
+            .toList()
+    }
+
     fun selectRecording(recording: Recording) {
-        // Stop current playback if any
         stopPlayback()
-        
-        // Load new file
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                if (playbackEngine == null) {
-                    playbackEngine = NativePlaybackEngine()
-                }
-                assetManager?.let { playbackEngine?.setAssetManager(it) }
-                cacheDirectory?.let { playbackEngine?.setCacheDirectory(it) }
-                playbackEngine?.setPlaybackGain(_playbackGainDb.value ?: 0f)
-                playbackEngine?.setLooping(_isLooping.value ?: false)
+                val engine = playbackEngine ?: NativePlaybackEngine().also { playbackEngine = it }
+                assetManager?.let { engine.setAssetManager(it) }
+                cacheDirectory?.let { engine.setCacheDirectory(it) }
+                engine.setPlaybackGain(_playbackGainDb.value ?: 0f)
+                engine.setLooping(_isLooping.value ?: false)
 
-                if (playbackEngine?.loadFile(recording.file.absolutePath) == true) {
+                val loaded = loadRecordingIntoEngine(recording)
+                if (loaded) {
                     val reused = tryReuseCachedPreRender(recording)
-                    val durationSeconds = playbackEngine?.getDuration() ?: 0.0
-                    
+                    val durationMs = (engine.getDuration() * 1000).toLong()
+
                     withContext(Dispatchers.Main) {
                         _selectedRecording.value = recording
-                        _totalDuration.value = (durationSeconds * 1000).toLong()
+                        _totalDuration.value = durationMs
                         _currentPosition.value = 0L
                         _isPlaying.value = false
                         _isProcessing.value = false
                         _processingProgress.value = if (reused) 100 else 0
                         _processingMessage.value = R.string.preprocessing_message
-                        if (reused) {
-                            _statusMessage.value = PlaybackMessage(R.string.playback_cached_ready)
+                        _statusMessage.value = if (reused) {
+                            PlaybackMessage(R.string.playback_cached_ready)
+                        } else {
+                            null
                         }
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        // TODO: Show error to user
-                        android.util.Log.e("PlaybackViewModel", "Failed to load file: ${recording.file.absolutePath}")
+                        _statusMessage.value = PlaybackMessage(R.string.playback_not_ready)
                     }
                 }
-            } catch (e: Exception) {
-                android.util.Log.e("PlaybackViewModel", "Error loading file", e)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Error loading recording ", t)
+                withContext(Dispatchers.Main) {
+                    _statusMessage.value = PlaybackMessage(R.string.playback_not_ready)
+                }
             }
         }
     }
-    
-    /**
-     * Clear selected recording
-     */
+
+    private fun loadRecordingIntoEngine(recording: Recording): Boolean {
+        val engine = playbackEngine ?: return false
+        val file = recording.file
+        if (file != null && file.exists()) {
+            return engine.loadFile(file.absolutePath)
+        }
+
+        val uri = recording.documentUri ?: return false
+        val context = appContext ?: return false
+
+        return runCatching {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                val fd = pfd.detachFd()
+                engine.loadFileFromDescriptor(fd, recording.displayPath)
+            } ?: false
+        }.onFailure { throwable ->
+            Log.e(TAG, "Failed to load recording from SAF: ", throwable)
+        }.getOrDefault(false)
+    }
+
     fun clearSelection() {
         stopPlayback()
         playbackEngine?.release()
         playbackEngine = null
-        
+
         _selectedRecording.value = null
         _isPlaying.value = false
         _currentPosition.value = 0L
         _totalDuration.value = 0L
-    _isProcessing.value = false
-    _processingProgress.value = 0
-    _processingMessage.value = R.string.preprocessing_message
+        _isProcessing.value = false
+        _processingProgress.value = 0
+        _processingMessage.value = R.string.preprocessing_message
     }
 
     fun setPlaybackGain(gainDb: Float) {
@@ -196,10 +260,7 @@ class PlaybackViewModel : ViewModel() {
         _isLooping.value = looping
         playbackEngine?.setLooping(looping)
     }
-    
-    /**
-     * Start playback
-     */
+
     fun play() {
         val engine = playbackEngine ?: return
 
@@ -228,29 +289,20 @@ class PlaybackViewModel : ViewModel() {
             }
         }
     }
-    
-    /**
-     * Pause playback
-     */
+
     fun pause() {
         playbackEngine?.pause()
         _isPlaying.value = false
         stopPositionUpdates()
     }
-    
-    /**
-     * Stop playback
-     */
+
     fun stopPlayback() {
         playbackEngine?.stop()
         _isPlaying.value = false
         _currentPosition.value = 0L
         stopPositionUpdates()
     }
-    
-    /**
-     * Seek to position
-     */
+
     fun seekTo(positionMs: Long) {
         val positionSeconds = positionMs / 1000.0
         playbackEngine?.seek(positionSeconds)
@@ -261,7 +313,10 @@ class PlaybackViewModel : ViewModel() {
         viewModelScope.launch {
             val assets = assetManager
             val cacheDir = cacheDirectory
-            if (assets == null || cacheDir == null) {
+            val context = appContext
+            val info = storageInfo
+
+            if (assets == null || cacheDir == null || context == null) {
                 _statusMessage.value = PlaybackMessage(R.string.export_failure)
                 return@launch
             }
@@ -272,162 +327,183 @@ class PlaybackViewModel : ViewModel() {
                 _isProcessing.value = true
 
                 var success = false
-                var exportedFile: File? = null
+                var outcome: ExportOutcome? = null
+                val engine = NativePlaybackEngine()
 
                 try {
-                    val engine = NativePlaybackEngine()
                     engine.setAssetManager(assets)
                     engine.setCacheDirectory(cacheDir)
 
-                    try {
-                        val loadSuccess = withContext(Dispatchers.IO) {
-                            engine.loadFile(recording.file.absolutePath)
+                    val loadSuccess = withContext(Dispatchers.IO) {
+                        when {
+                            recording.file?.exists() == true -> engine.loadFile(recording.file.absolutePath)
+                            recording.documentUri != null -> context.contentResolver.openFileDescriptor(recording.documentUri, "r")?.use { pfd ->
+                                val fd = pfd.detachFd()
+                                engine.loadFileFromDescriptor(fd, recording.displayPath)
+                            } ?: false
+                            else -> false
                         }
+                    }
 
-                        if (loadSuccess) {
-                            success = coroutineScope {
-                                val prepareDeferred = async(Dispatchers.IO) {
-                                    engine.preparePreRender()
+                    if (!loadSuccess) {
+                        _statusMessage.value = PlaybackMessage(R.string.export_failure)
+                        return@withLock
+                    }
+
+                    success = coroutineScope {
+                        val prepareDeferred = async(Dispatchers.IO) { engine.preparePreRender() }
+                        val progressJob = launch {
+                            while (isActive) {
+                                val progress = engine.getPreRenderProgress().coerceIn(0, 100)
+                                _processingProgress.value = progress
+                                if (prepareDeferred.isCompleted && progress >= 100) {
+                                    break
                                 }
-
-                                val progressJob = launch {
-                                    while (isActive) {
-                                        val progress = engine.getPreRenderProgress().coerceIn(0, 100)
-                                        _processingProgress.value = progress
-
-                                        if (prepareDeferred.isCompleted && progress >= 100) {
-                                            break
-                                        }
-
-                                        delay(150)
-                                    }
-                                }
-
-                                val prepared = prepareDeferred.await()
-                                progressJob.cancelAndJoin()
-
-                                if (!prepared) {
-                                    _processingProgress.value = 0
-                                    return@coroutineScope false
-                                }
-
-                                _processingProgress.value = 100
-
-                                exportedFile = withContext(Dispatchers.IO) {
-                                    val recordingDir = recording.file.parentFile ?: return@withContext null
-                                    val exportDir = StorageLocationManager.ensureExportsDirectory(recordingDir)
-
-                                    val baseName = recording.file.nameWithoutExtension
-                                    val exportFile = File(exportDir, "${baseName}_binaural.wav")
-                                    if (engine.exportPreRendered(exportFile.absolutePath)) exportFile else null
-                                }
-
-                                exportedFile != null
+                                delay(150)
                             }
                         }
-                    } finally {
-                        engine.release()
+
+                        val prepared = prepareDeferred.await()
+                        progressJob.cancelAndJoin()
+
+                        if (!prepared) {
+                            _processingProgress.value = 0
+                            return@coroutineScope false
+                        }
+
+                        _processingProgress.value = 100
+
+                        outcome = withContext(Dispatchers.IO) {
+                            when {
+                                recording.file?.exists() == true -> {
+                                    val recordingDir = recording.file.parentFile ?: return@withContext null
+                                    val exportDir = StorageLocationManager.ensureExportsDirectory(recordingDir)
+                                    val exportFile = File(exportDir, buildExportFileName(recording))
+                                    if (engine.exportPreRendered(exportFile.absolutePath)) {
+                                        ExportOutcome.Local(exportFile)
+                                    } else {
+                                        null
+                                    }
+                                }
+                                recording.documentUri != null -> {
+                                    val storage = info
+                                    val treeUri = storage?.treeUri ?: return@withContext null
+                                    val exportsDir = StorageLocationManager.ensureExportsDocumentDirectory(context, treeUri)
+                                        ?: return@withContext null
+                                    val targetName = buildExportFileName(recording)
+                                    val tempFile = File(cacheDir, "export_temp_.wav")
+                                    if (tempFile.exists()) {
+                                        tempFile.delete()
+                                    }
+
+                                    if (!engine.exportPreRendered(tempFile.absolutePath)) {
+                                        tempFile.delete()
+                                        return@withContext null
+                                    }
+
+                                    val document = StorageLocationManager.createOrReplaceDocumentFile(exportsDir, targetName)
+                                        ?: run {
+                                            tempFile.delete()
+                                            return@withContext null
+                                        }
+
+                                    val copied = context.contentResolver.openOutputStream(document.uri, "w")?.use { output ->
+                                        tempFile.inputStream().use { input -> input.copyTo(output) }
+                                        true
+                                    } ?: false
+
+                                    tempFile.delete()
+
+                                    if (copied) {
+                                        ExportOutcome.Document(document)
+                                    } else {
+                                        runCatching { document.delete() }
+                                        null
+                                    }
+                                }
+                                else -> null
+                            }
+                        }
+
+                        outcome != null
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to export recording", e)
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Failed to export recording", t)
                     success = false
                 } finally {
-                    _processingProgress.value = if (success) 100 else 0
+                    engine.release()
                     _isProcessing.value = false
                     _processingMessage.value = R.string.preprocessing_message
+                    if (!success) {
+                        _processingProgress.value = 0
+                    }
                 }
 
                 if (success) {
-                    rememberCachedSource(recording.file.absolutePath)
-                    val messageArg = exportedFile?.let { "Exports/${it.name}" }
-                    _statusMessage.value = PlaybackMessage(
-                        R.string.export_success,
-                        listOfNotNull(messageArg ?: exportedFile?.name)
-                    )
+                    recording.cacheKey?.let { rememberCachedSource(it) }
+                    val messageArg = when (val result = outcome) {
+                        is ExportOutcome.Local -> result.file.name
+                        is ExportOutcome.Document -> result.document.name ?: result.document.uri.toString()
+                        else -> null
+                    }
+                    _statusMessage.value = PlaybackMessage(R.string.export_success, listOfNotNull(messageArg))
                 } else {
                     _statusMessage.value = PlaybackMessage(R.string.export_failure)
                 }
             }
         }
     }
-    
-    /**
-     * Start periodic position updates
-     */
+
     private fun startPositionUpdates() {
         stopPositionUpdates()
-        
+
         positionUpdateJob = viewModelScope.launch {
             while (isActive) {
                 val positionSeconds = playbackEngine?.getPosition() ?: 0.0
                 _currentPosition.value = (positionSeconds * 1000).toLong()
-                
-                // Check if playback finished
+
                 val state = playbackEngine?.getState()
                 if (state == NativePlaybackEngine.State.STOPPED) {
                     _isPlaying.value = false
                     break
                 }
-                
-                delay(100)  // Update every 100ms
+
+                delay(100)
             }
         }
     }
-    
-    /**
-     * Stop position updates
-     */
+
     private fun stopPositionUpdates() {
         positionUpdateJob?.cancel()
         positionUpdateJob = null
     }
-    
-    /**
-     * Select IR preset
-     */
+
     fun selectIRPreset(preset: IRPreset) {
         _selectedIRPreset.value = preset
     }
 
-    fun setAssetManager(manager: AssetManager) {
-        assetManager = manager
-        playbackEngine?.setAssetManager(manager)
-    }
-
-    fun setPreferences(prefs: SharedPreferences) {
-        preferences = prefs
-    }
-
-    fun setCacheDirectory(path: String) {
-        cacheDirectory = path
-        playbackEngine?.setCacheDirectory(path)
-    }
-    
-    /**
-     * Update playback state
-     */
     fun setPlaying(playing: Boolean) {
         _isPlaying.value = playing
     }
-    
-    /**
-     * Update current position
-     */
+
     fun updatePosition(positionMs: Long) {
         _currentPosition.value = positionMs
     }
 
     fun clearStatusMessage() {
-    _statusMessage.value = null
+        _statusMessage.value = null
     }
 
     fun deleteRecording(recording: Recording) {
         viewModelScope.launch(Dispatchers.IO) {
             val deleted = runCatching {
-                if (recording.file.exists()) {
-                    recording.file.delete()
-                } else {
-                    false
+                when {
+                    recording.file?.exists() == true -> recording.file.delete()
+                    recording.documentUri != null -> {
+                        val context = appContext ?: return@runCatching false
+                        DocumentFile.fromSingleUri(context, recording.documentUri)?.delete() ?: false
+                    }
+                    else -> false
                 }
             }.getOrElse { throwable ->
                 Log.e(TAG, "Failed to delete recording", throwable)
@@ -435,8 +511,8 @@ class PlaybackViewModel : ViewModel() {
             }
 
             if (deleted) {
-                if (_selectedRecording.value?.file == recording.file) {
-                    withContext(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
+                    if (_selectedRecording.value?.uniqueId == recording.uniqueId) {
                         clearSelection()
                     }
                 }
@@ -450,9 +526,10 @@ class PlaybackViewModel : ViewModel() {
     private fun tryReuseCachedPreRender(recording: Recording): Boolean {
         val engine = playbackEngine ?: return false
         val cacheDir = cacheDirectory ?: return false
+        val cacheKey = recording.cacheKey ?: return false
         val lastSource = lastCachedSource() ?: return false
 
-        if (lastSource != recording.file.absolutePath) {
+        if (lastSource != cacheKey) {
             return false
         }
 
@@ -463,13 +540,13 @@ class PlaybackViewModel : ViewModel() {
         }
 
         val reused = runCatching {
-            engine.useCachedPreRender(recording.file.absolutePath)
+            engine.useCachedPreRender(cacheKey)
         }.onFailure { throwable ->
             Log.e(TAG, "Failed to reuse cached pre-render", throwable)
         }.getOrDefault(false)
 
         if (reused) {
-            rememberCachedSource(recording.file.absolutePath)
+            rememberCachedSource(cacheKey)
         } else {
             clearCachedSource()
         }
@@ -477,8 +554,8 @@ class PlaybackViewModel : ViewModel() {
         return reused
     }
 
-    private fun rememberCachedSource(path: String) {
-        preferences?.edit()?.putString(PREF_LAST_CACHE_SOURCE, path)?.apply()
+    private fun rememberCachedSource(sourceKey: String) {
+        preferences?.edit()?.putString(PREF_LAST_CACHE_SOURCE, sourceKey)?.apply()
     }
 
     private fun clearCachedSource() {
@@ -486,17 +563,11 @@ class PlaybackViewModel : ViewModel() {
     }
 
     private fun lastCachedSource(): String? = preferences?.getString(PREF_LAST_CACHE_SOURCE, null)
-    
-    /**
-     * Get total storage used by recordings
-     */
+
     fun getTotalStorageBytes(): Long {
         return _recordings.value?.sumOf { it.fileSizeBytes } ?: 0L
     }
-    
-    /**
-     * Format storage size
-     */
+
     fun getFormattedStorageSize(): String {
         val bytes = getTotalStorageBytes()
         val mb = bytes / (1024f * 1024f)
@@ -506,7 +577,7 @@ class PlaybackViewModel : ViewModel() {
             else -> String.format("%.0f KB", bytes / 1024f)
         }
     }
-    
+
     override fun onCleared() {
         super.onCleared()
         stopPlayback()
@@ -533,10 +604,7 @@ class PlaybackViewModel : ViewModel() {
                 _processingProgress.value = 0
 
                 val success = coroutineScope {
-                    val prepareDeferred = async(Dispatchers.IO) {
-                        engine.preparePreRender()
-                    }
-
+                    val prepareDeferred = async(Dispatchers.IO) { engine.preparePreRender() }
                     val progressJob = launch {
                         while (isActive) {
                             val progress = engine.getPreRenderProgress().coerceIn(0, 100)
@@ -566,9 +634,7 @@ class PlaybackViewModel : ViewModel() {
                     val newDuration = engine.getDuration()
                     _totalDuration.value = (newDuration * 1000).toLong()
                     _currentPosition.value = 0L
-                    selectedRecording.value?.file?.absolutePath?.let { path ->
-                        rememberCachedSource(path)
-                    }
+                    selectedRecording.value?.cacheKey?.let { key -> rememberCachedSource(key) }
                 } else {
                     _statusMessage.value = PlaybackMessage(R.string.preprocessing_failed)
                     clearCachedSource()
@@ -583,3 +649,9 @@ class PlaybackViewModel : ViewModel() {
 }
 
 data class PlaybackMessage(@StringRes val resId: Int, val args: List<Any> = emptyList())
+
+private fun buildExportFileName(recording: Recording, suffix: String = "binaural"): String {
+    val originalName = recording.file?.name ?: recording.fileName
+    val base = originalName.substringBeforeLast('.', originalName).ifBlank { originalName }
+    return "${base}_${suffix}.wav"
+}

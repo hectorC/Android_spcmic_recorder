@@ -31,6 +31,10 @@ class NativePlaybackEngine {
         return nativeLoadFile(engineHandle, filePath)
     }
 
+    fun loadFileFromDescriptor(fd: Int, displayPath: String): Boolean {
+        return nativeLoadFileFromDescriptor(engineHandle, fd, displayPath)
+    }
+
     fun setAssetManager(assetManager: AssetManager) {
         nativeSetAssetManager(engineHandle, assetManager)
     }
@@ -151,6 +155,7 @@ class NativePlaybackEngine {
     private external fun nativeCreate(): Long
     private external fun nativeDestroy(engineHandle: Long)
     private external fun nativeLoadFile(engineHandle: Long, filePath: String): Boolean
+    private external fun nativeLoadFileFromDescriptor(engineHandle: Long, fd: Int, displayPath: String): Boolean
     private external fun nativePlay(engineHandle: Long): Boolean
     private external fun nativePause(engineHandle: Long)
     private external fun nativeStop(engineHandle: Long)

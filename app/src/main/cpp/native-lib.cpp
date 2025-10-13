@@ -84,6 +84,41 @@ Java_com_spcmic_recorder_USBAudioRecorder_startRecordingNative(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_startRecordingNativeWithFd(
+        JNIEnv* env,
+        jobject thiz,
+        jint fd,
+        jstring locationHint) {
+
+    if (!g_recorder) {
+        LOGE("Recorder not initialized");
+        return JNI_FALSE;
+    }
+
+    std::string destinationLabel;
+    if (locationHint != nullptr) {
+        const char* hintChars = env->GetStringUTFChars(locationHint, nullptr);
+        if (hintChars) {
+            destinationLabel.assign(hintChars);
+            env->ReleaseStringUTFChars(locationHint, hintChars);
+        }
+    }
+
+    if (destinationLabel.empty()) {
+        destinationLabel = "parcel_fd";
+    }
+
+    LOGI("Starting native recording via fd=%d (%s)", fd, destinationLabel.c_str());
+    bool result = g_recorder->startRecordingWithFd(static_cast<int>(fd), destinationLabel);
+    if (result) {
+        LOGI("Native recording started successfully via fd=%d", fd);
+    } else {
+        LOGE("Failed to start native recording via fd=%d", fd);
+    }
+    return result ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_spcmic_recorder_USBAudioRecorder_hasClippedNative(
         JNIEnv* env,
         jobject thiz) {

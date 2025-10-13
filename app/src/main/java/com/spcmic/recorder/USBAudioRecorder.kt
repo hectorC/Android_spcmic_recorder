@@ -8,6 +8,9 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
+import android.os.ParcelFileDescriptor
+import androidx.documentfile.provider.DocumentFile
+import androidx.core.content.IntentCompat
 import kotlinx.coroutines.*
 import java.io.*
 import java.text.SimpleDateFormat
@@ -25,6 +28,7 @@ class USBAudioRecorder(
     private var levelUpdateJob: Job? = null
     private var targetSampleRate = DEFAULT_SAMPLE_RATE
     private var isNativeInitialized = false
+    private var activeRecordingPfd: ParcelFileDescriptor? = null
     
     private val ACTION_USB_PERMISSION = "com.spcmic.recorder.USB_PERMISSION"
     private val usbReceiver = object : BroadcastReceiver() {
@@ -32,7 +36,7 @@ class USBAudioRecorder(
             val action = intent.action
             if (ACTION_USB_PERMISSION == action) {
                 synchronized(this) {
-                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                    val device: UsbDevice? = IntentCompat.getParcelableExtra(intent, UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
                     if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
                         device?.let {
                             android.util.Log.i("USBAudioRecorder", "USB permission granted for device: ${it.deviceName}")
@@ -60,6 +64,7 @@ class USBAudioRecorder(
     external fun stringFromJNI(): String
     external fun initializeNativeAudio(deviceFd: Int, sampleRate: Int, channelCount: Int): Boolean
     external fun startRecordingNative(outputPath: String): Boolean
+    external fun startRecordingNativeWithFd(fd: Int, absolutePath: String): Boolean
     external fun stopRecordingNative(): Boolean
     external fun startMonitoringNative(): Boolean
     external fun stopMonitoringNative()
@@ -230,28 +235,40 @@ class USBAudioRecorder(
             return false
         }
         
+        var pendingTarget: StorageLocationManager.RecordingTarget? = null
         try {
             val dateFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
             val timestamp = dateFormat.format(Date())
             val fileName = "spcmic_recording_$timestamp.wav"
             
-            val storageInfo = StorageLocationManager.getStorageInfo(context)
-            val appDir = storageInfo.directory
-            if (!appDir.exists()) {
-                appDir.mkdirs()
+            val target = StorageLocationManager.prepareRecordingTarget(context, fileName)
+            if (target == null) {
+                android.util.Log.e("USBAudioRecorder", "Failed to resolve recording destination for $fileName")
+                return false
             }
-            val outputFile = File(appDir, fileName)
-            
-            android.util.Log.i("USBAudioRecorder", "Starting recording to: ${outputFile.absolutePath}")
-            
-            // Start native recording
-            val success = startRecordingNative(outputFile.absolutePath)
+            pendingTarget = target
+
+            val success = when {
+                target.outputFile != null -> {
+                    android.util.Log.i("USBAudioRecorder", "Starting recording to: ${target.outputFile.absolutePath}")
+                    startRecordingNative(target.outputFile.absolutePath)
+                }
+                target.parcelFileDescriptor != null -> {
+                    activeRecordingPfd = target.parcelFileDescriptor
+                    android.util.Log.i("USBAudioRecorder", "Starting recording via SAF to: ${target.displayLocation}")
+                    startRecordingNativeWithFd(activeRecordingPfd!!.fd, target.displayLocation)
+                }
+                else -> {
+                    android.util.Log.e("USBAudioRecorder", "Recording target missing backing file or descriptor")
+                    false
+                }
+            }
             if (success) {
                 isRecording = true
                 viewModel.clearClipping()
                 resetClipIndicatorNative()
-                viewModel.setRecordingFileName(outputFile.name)
-                android.util.Log.i("USBAudioRecorder", "Started recording to: ${outputFile.absolutePath}")
+                viewModel.setRecordingFileName(fileName)
+                android.util.Log.i("USBAudioRecorder", "Started recording to: ${target.displayLocation}")
                 
                 // Start recording monitoring job with high priority
                 recordingJob = CoroutineScope(Dispatchers.IO).launch {
@@ -262,12 +279,22 @@ class USBAudioRecorder(
                 }
             } else {
                 android.util.Log.e("USBAudioRecorder", "Failed to start native recording")
+                activeRecordingPfd?.closeSafely()
+                activeRecordingPfd = null
+                target.documentUri?.let { uri ->
+                    runCatching { DocumentFile.fromSingleUri(context, uri)?.delete() }
+                }
             }
             
             return success
             
         } catch (e: Exception) {
             android.util.Log.e("USBAudioRecorder", "Exception in startRecording", e)
+            activeRecordingPfd?.closeSafely()
+            activeRecordingPfd = null
+            pendingTarget?.documentUri?.let { uri ->
+                runCatching { DocumentFile.fromSingleUri(context, uri)?.delete() }
+            }
             return false
         }
     }
@@ -361,6 +388,8 @@ class USBAudioRecorder(
         
         // Stop native recording
         stopRecordingNative()
+        activeRecordingPfd?.closeSafely()
+        activeRecordingPfd = null
         
         android.util.Log.i("USBAudioRecorder", "Recording stopped")
     }
@@ -462,6 +491,9 @@ class USBAudioRecorder(
         }
         isNativeInitialized = false
         viewModel.clearClipping()
+
+        activeRecordingPfd?.closeSafely()
+        activeRecordingPfd = null
         
         // Unregister USB receiver
         try {
@@ -475,5 +507,13 @@ class USBAudioRecorder(
         usbDevice = null
         
         android.util.Log.i("USBAudioRecorder", "USB audio recorder released")
+    }
+}
+
+private fun ParcelFileDescriptor.closeSafely() {
+    try {
+        close()
+    } catch (_: IOException) {
+        // Ignored
     }
 }

@@ -44,6 +44,7 @@ class PlaybackFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         
         viewModel = ViewModelProvider(this)[PlaybackViewModel::class.java]
+    viewModel.attachContext(requireContext().applicationContext)
         viewModel.setAssetManager(requireContext().assets)
         val preferences = requireContext().getSharedPreferences(PlaybackViewModel.PREFS_NAME, Context.MODE_PRIVATE)
         viewModel.setPreferences(preferences)
@@ -53,8 +54,8 @@ class PlaybackFragment : Fragment() {
             cacheDir.mkdirs()
         }
         viewModel.setCacheDirectory(cacheDir.absolutePath)
-        
-    initializeStorageLocation()
+
+        initializeStorageLocation()
         setupRecyclerView()
         setupPlayerControls()
         observeViewModel()
@@ -290,7 +291,7 @@ class PlaybackFragment : Fragment() {
 
     private fun initializeStorageLocation() {
         val info = StorageLocationManager.getStorageInfo(requireContext())
-        viewModel.setRecordingsDirectory(info.directory)
+        viewModel.updateStorageLocation(info)
         binding.tvPlaybackStoragePath.text = info.displayPath
         viewModel.scanRecordings()
     }

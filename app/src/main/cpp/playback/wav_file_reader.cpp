@@ -2,6 +2,8 @@
 #include <android/log.h>
 #include <cstring>
 #include <algorithm>
+#include <unistd.h>
+#include <errno.h>
 
 #define LOG_TAG "WavFileReader"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
@@ -42,6 +44,39 @@ bool WavFileReader::open(const std::string& filePath) {
 
     LOGD("Opened WAV file: %d channels, %d Hz, %d-bit, %lld frames (%.2f seconds)",
          numChannels_, sampleRate_, bitsPerSample_, (long long)totalFrames_, getDurationSeconds());
+
+    return true;
+}
+
+bool WavFileReader::openFromFd(int fd, const std::string& displayPath) {
+    close();
+
+    if (fd < 0) {
+        LOGE("Invalid file descriptor for %s", displayPath.c_str());
+        return false;
+    }
+
+    int dupFd = dup(fd);
+    if (dupFd < 0) {
+        LOGE("Failed to dup file descriptor for %s: %s", displayPath.c_str(), strerror(errno));
+        return false;
+    }
+
+    fileHandle_ = fdopen(dupFd, "rb");
+    if (!fileHandle_) {
+        LOGE("Failed to fdopen descriptor for %s: %s", displayPath.c_str(), strerror(errno));
+        ::close(dupFd);
+        return false;
+    }
+
+    if (!readHeader()) {
+        LOGE("Invalid WAV file format for descriptor (%s)", displayPath.c_str());
+        close();
+        return false;
+    }
+
+    LOGD("Opened WAV descriptor %s: %d channels, %d Hz, %d-bit, %lld frames (%.2f seconds)",
+         displayPath.c_str(), numChannels_, sampleRate_, bitsPerSample_, (long long)totalFrames_, getDurationSeconds());
 
     return true;
 }
