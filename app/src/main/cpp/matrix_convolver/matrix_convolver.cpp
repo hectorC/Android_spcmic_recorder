@@ -17,6 +17,7 @@
 namespace {
 constexpr int kNumChannels = 84;
 constexpr std::complex<float> kZeroComplex{0.0f, 0.0f};
+#if defined(SPCMIC_ENABLE_ACCUM_TIMING)
 using Clock = std::chrono::steady_clock;
 
 struct AccumTimingState {
@@ -52,6 +53,9 @@ void recordAccumulation(long long micros) {
         state.blocks = 0;
     }
 }
+#else
+inline void recordAccumulation(long long) {}
+#endif
 
 #if defined(__clang__)
 #define SPCMIC_VECTORIZE _Pragma("clang loop vectorize(enable)")
@@ -242,7 +246,9 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
 
     const int numChannels = impulseResponse_->numInputChannels;
 
+    #if defined(SPCMIC_ENABLE_ACCUM_TIMING)
     long long accumulateMicros = 0;
+    #endif
 
     if (singlePartition_) {
         for (int ch = 0; ch < numChannels; ++ch) {
@@ -258,10 +264,14 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
             const auto& leftIR = channelIRs_[ch].partitionsLeft[0];
             const auto& rightIR = channelIRs_[ch].partitionsRight[0];
 
+            #if defined(SPCMIC_ENABLE_ACCUM_TIMING)
             const auto accumStart = Clock::now();
+            #endif
             accumulatePartition(spectrum, leftIR, freqAccumLeft_);
             accumulatePartition(spectrum, rightIR, freqAccumRight_);
+            #if defined(SPCMIC_ENABLE_ACCUM_TIMING)
             accumulateMicros += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - accumStart).count();
+            #endif
         }
     } else {
         for (int ch = 0; ch < numChannels; ++ch) {
@@ -277,7 +287,9 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
 
             const ChannelIR& channelIR = channelIRs_[ch];
 
+            #if defined(SPCMIC_ENABLE_ACCUM_TIMING)
             const auto accumStart = Clock::now();
+            #endif
             for (int p = 0; p < numPartitions_; ++p) {
                 const int histIndex = (historyWritePos_ - p + numPartitions_) % numPartitions_;
                 const auto& inputSpectrum = historyBlocks[histIndex];
@@ -287,7 +299,9 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
                 accumulatePartition(inputSpectrum, leftIR, freqAccumLeft_);
                 accumulatePartition(inputSpectrum, rightIR, freqAccumRight_);
             }
+            #if defined(SPCMIC_ENABLE_ACCUM_TIMING)
             accumulateMicros += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - accumStart).count();
+            #endif
         }
 
         historyWritePos_ = (historyWritePos_ + 1) % numPartitions_;
@@ -309,7 +323,9 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
         overlapRight_[frame] = freqAccumRight_[frame + blockSize_].real();
     }
 
+    #if defined(SPCMIC_ENABLE_ACCUM_TIMING)
     recordAccumulation(accumulateMicros);
+    #endif
 }
 
 void MatrixConvolver::fallbackDownmix(const float* input, float* output, int numFrames) const {

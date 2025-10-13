@@ -5,53 +5,11 @@
 #include <cstring>
 #include <mutex>
 #include <unordered_map>
-#include <chrono>
-#include <android/log.h>
 
 namespace spcmic {
 
 namespace {
 constexpr float kPi = 3.14159265358979323846f;
-
-using Clock = std::chrono::steady_clock;
-
-struct TimingState {
-    long long totalMicros = 0;
-    int calls = 0;
-};
-
-std::mutex& timingMutex() {
-    static std::mutex mutex;
-    return mutex;
-}
-
-TimingState& forwardTiming() {
-    static TimingState state;
-    return state;
-}
-
-TimingState& inverseTiming() {
-    static TimingState state;
-    return state;
-}
-
-void recordTiming(TimingState& state, long long micros, const char* label) {
-    if (micros <= 0) {
-        return;
-    }
-
-    auto& mutex = timingMutex();
-    std::lock_guard<std::mutex> lock(mutex);
-    state.totalMicros += micros;
-    state.calls += 1;
-    constexpr int kLogInterval = 512;
-    if (state.calls >= kLogInterval) {
-        const double avgMs = static_cast<double>(state.totalMicros) / static_cast<double>(state.calls) / 1000.0;
-        __android_log_print(ANDROID_LOG_DEBUG, "FftEngine", "%s avg %.3f ms over %d calls", label, avgMs, state.calls);
-        state.totalMicros = 0;
-        state.calls = 0;
-    }
-}
 
 struct StagePlan {
     size_t length;
@@ -121,17 +79,11 @@ bool FftEngine::isPowerOfTwo(size_t n) {
 }
 
 void FftEngine::forward(std::vector<std::complex<float>>& data) {
-    const auto start = Clock::now();
     transform(data, false);
-    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - start).count();
-    recordTiming(forwardTiming(), elapsed, "FFT forward");
 }
 
 void FftEngine::inverse(std::vector<std::complex<float>>& data) {
-    const auto start = Clock::now();
     transform(data, true);
-    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - start).count();
-    recordTiming(inverseTiming(), elapsed, "FFT inverse");
 }
 
 void FftEngine::transform(std::vector<std::complex<float>>& data, bool inverse) {
