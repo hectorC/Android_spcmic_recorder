@@ -328,110 +328,131 @@ class PlaybackViewModel : ViewModel() {
 
                 var success = false
                 var outcome: ExportOutcome? = null
-                val engine = NativePlaybackEngine()
 
                 try {
-                    engine.setAssetManager(assets)
-                    engine.setCacheDirectory(cacheDir)
+                    val cachedPreRender = playbackCacheForRecording(recording)
+                    var reuseSucceeded = false
 
-                    val loadSuccess = withContext(Dispatchers.IO) {
-                        when {
-                            recording.file?.exists() == true -> engine.loadFile(recording.file.absolutePath)
-                            recording.documentUri != null -> context.contentResolver.openFileDescriptor(recording.documentUri, "r")?.use { pfd ->
-                                val fd = pfd.detachFd()
-                                engine.loadFileFromDescriptor(fd, recording.displayPath)
-                            } ?: false
-                            else -> false
-                        }
-                    }
-
-                    if (!loadSuccess) {
-                        _statusMessage.value = PlaybackMessage(R.string.export_failure)
-                        return@withLock
-                    }
-
-                    success = coroutineScope {
-                        val prepareDeferred = async(Dispatchers.IO) { engine.preparePreRender() }
-                        val progressJob = launch {
-                            while (isActive) {
-                                val progress = engine.getPreRenderProgress().coerceIn(0, 100)
-                                _processingProgress.value = progress
-                                if (prepareDeferred.isCompleted && progress >= 100) {
-                                    break
-                                }
-                                delay(150)
-                            }
-                        }
-
-                        val prepared = prepareDeferred.await()
-                        progressJob.cancelAndJoin()
-
-                        if (!prepared) {
-                            _processingProgress.value = 0
-                            return@coroutineScope false
-                        }
-
-                        _processingProgress.value = 100
-
+                    if (cachedPreRender != null) {
                         outcome = withContext(Dispatchers.IO) {
-                            when {
-                                recording.file?.exists() == true -> {
-                                    val recordingDir = recording.file.parentFile ?: return@withContext null
-                                    val exportDir = StorageLocationManager.ensureExportsDirectory(recordingDir)
-                                    val exportFile = File(exportDir, buildExportFileName(recording))
-                                    if (engine.exportPreRendered(exportFile.absolutePath)) {
-                                        ExportOutcome.Local(exportFile)
-                                    } else {
-                                        null
-                                    }
-                                }
-                                recording.documentUri != null -> {
-                                    val storage = info
-                                    val treeUri = storage?.treeUri ?: return@withContext null
-                                    val exportsDir = StorageLocationManager.ensureExportsDocumentDirectory(context, treeUri)
-                                        ?: return@withContext null
-                                    val targetName = buildExportFileName(recording)
-                                    val tempFile = File(cacheDir, "export_temp_.wav")
-                                    if (tempFile.exists()) {
-                                        tempFile.delete()
-                                    }
-
-                                    if (!engine.exportPreRendered(tempFile.absolutePath)) {
-                                        tempFile.delete()
-                                        return@withContext null
-                                    }
-
-                                    val document = StorageLocationManager.createOrReplaceDocumentFile(exportsDir, targetName)
-                                        ?: run {
-                                            tempFile.delete()
-                                            return@withContext null
-                                        }
-
-                                    val copied = context.contentResolver.openOutputStream(document.uri, "w")?.use { output ->
-                                        tempFile.inputStream().use { input -> input.copyTo(output) }
-                                        true
-                                    } ?: false
-
-                                    tempFile.delete()
-
-                                    if (copied) {
-                                        ExportOutcome.Document(document)
-                                    } else {
-                                        runCatching { document.delete() }
-                                        null
-                                    }
-                                }
-                                else -> null
-                            }
+                            reuseCachedPreRenderForExport(cachedPreRender, recording, context, info)
                         }
-
-                        outcome != null
+                        reuseSucceeded = outcome != null
+                        if (reuseSucceeded) {
+                            _processingProgress.value = 100
+                            success = true
+                        } else {
+                            _processingProgress.value = 0
+                        }
                     }
-                } catch (t: Throwable) {
-                    Log.e(TAG, "Failed to export recording", t)
-                    success = false
+
+                    if (!reuseSucceeded) {
+                        val engine = NativePlaybackEngine()
+                        try {
+                            engine.setAssetManager(assets)
+                            engine.setCacheDirectory(cacheDir)
+
+                            val loadSuccess = withContext(Dispatchers.IO) {
+                                when {
+                                    recording.file?.exists() == true -> engine.loadFile(recording.file.absolutePath)
+                                    recording.documentUri != null -> context.contentResolver.openFileDescriptor(recording.documentUri, "r")?.use { pfd ->
+                                        val fd = pfd.detachFd()
+                                        engine.loadFileFromDescriptor(fd, recording.displayPath)
+                                    } ?: false
+                                    else -> false
+                                }
+                            }
+
+                            if (!loadSuccess) {
+                                _statusMessage.value = PlaybackMessage(R.string.export_failure)
+                                return@withLock
+                            }
+
+                            success = coroutineScope {
+                                val prepareDeferred = async(Dispatchers.IO) { engine.preparePreRender() }
+                                val progressJob = launch {
+                                    while (isActive) {
+                                        val progress = engine.getPreRenderProgress().coerceIn(0, 100)
+                                        _processingProgress.value = progress
+                                        if (prepareDeferred.isCompleted && progress >= 100) {
+                                            break
+                                        }
+                                        delay(150)
+                                    }
+                                }
+
+                                val prepared = prepareDeferred.await()
+                                progressJob.cancelAndJoin()
+
+                                if (!prepared) {
+                                    _processingProgress.value = 0
+                                    return@coroutineScope false
+                                }
+
+                                _processingProgress.value = 100
+
+                                outcome = withContext(Dispatchers.IO) {
+                                    when {
+                                        recording.file?.exists() == true -> {
+                                            val recordingDir = recording.file.parentFile ?: return@withContext null
+                                            val exportDir = StorageLocationManager.ensureExportsDirectory(recordingDir)
+                                            val exportFile = File(exportDir, buildExportFileName(recording))
+                                            if (engine.exportPreRendered(exportFile.absolutePath)) {
+                                                ExportOutcome.Local(exportFile)
+                                            } else {
+                                                null
+                                            }
+                                        }
+                                        recording.documentUri != null -> {
+                                            val storage = info
+                                            val treeUri = storage?.treeUri ?: return@withContext null
+                                            val exportsDir = StorageLocationManager.ensureExportsDocumentDirectory(context, treeUri)
+                                                ?: return@withContext null
+                                            val targetName = buildExportFileName(recording)
+                                            val tempFile = File(cacheDir, "export_temp_.wav")
+                                            if (tempFile.exists()) {
+                                                tempFile.delete()
+                                            }
+
+                                            if (!engine.exportPreRendered(tempFile.absolutePath)) {
+                                                tempFile.delete()
+                                                return@withContext null
+                                            }
+
+                                            val document = StorageLocationManager.createOrReplaceDocumentFile(exportsDir, targetName)
+                                                ?: run {
+                                                    tempFile.delete()
+                                                    return@withContext null
+                                                }
+
+                                            val copied = context.contentResolver.openOutputStream(document.uri, "w")?.use { output ->
+                                                tempFile.inputStream().use { input -> input.copyTo(output) }
+                                                true
+                                            } ?: false
+
+                                            tempFile.delete()
+
+                                            if (copied) {
+                                                ExportOutcome.Document(document)
+                                            } else {
+                                                runCatching { document.delete() }
+                                                null
+                                            }
+                                        }
+                                        else -> null
+                                    }
+                                }
+
+                                outcome != null
+                            }
+                        } catch (t: Throwable) {
+                            Log.e(TAG, "Failed to export recording", t)
+                            success = false
+                        } finally {
+                            engine.release()
+                        }
+                    }
                 } finally {
-                    engine.release()
                     _isProcessing.value = false
                     _processingMessage.value = R.string.preprocessing_message
                     if (!success) {
@@ -644,6 +665,61 @@ class PlaybackViewModel : ViewModel() {
             } finally {
                 _isProcessing.value = false
             }
+        }
+    }
+
+    private fun playbackCacheForRecording(recording: Recording): File? {
+        val cacheDir = cacheDirectory ?: return null
+        val cacheKey = recording.cacheKey ?: return null
+        if (cacheKey != lastCachedSource()) {
+            return null
+        }
+
+        val cacheFile = File(cacheDir, CACHE_FILE_NAME)
+        return cacheFile.takeIf { it.exists() && it.length() > 0 }
+    }
+
+    private fun reuseCachedPreRenderForExport(
+        cachedFile: File,
+        recording: Recording,
+        context: Context,
+        storageInfo: StorageLocationManager.StorageInfo?
+    ): ExportOutcome? {
+        return when {
+            recording.file?.exists() == true -> {
+                val recordingDir = recording.file.parentFile ?: return null
+                val exportDir = StorageLocationManager.ensureExportsDirectory(recordingDir)
+                val exportFile = File(exportDir, buildExportFileName(recording))
+                runCatching {
+                    cachedFile.inputStream().use { input ->
+                        exportFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    ExportOutcome.Local(exportFile)
+                }.getOrNull()
+            }
+            recording.documentUri != null -> {
+                val treeUri = storageInfo?.treeUri ?: return null
+                val exportsDir = StorageLocationManager.ensureExportsDocumentDirectory(context, treeUri)
+                    ?: return null
+                val targetName = buildExportFileName(recording)
+                val document = StorageLocationManager.createOrReplaceDocumentFile(exportsDir, targetName)
+                    ?: return null
+
+                val copied = context.contentResolver.openOutputStream(document.uri, "w")?.use { output ->
+                    cachedFile.inputStream().use { input -> input.copyTo(output) }
+                    true
+                } ?: false
+
+                if (copied) {
+                    ExportOutcome.Document(document)
+                } else {
+                    runCatching { document.delete() }
+                    null
+                }
+            }
+            else -> null
         }
     }
 }
