@@ -121,55 +121,118 @@ class PlaybackViewModel : ViewModel() {
             _isLoading.value = true
             val info = storageInfo
             val context = appContext
+            
+            Log.d(TAG, "scanRecordings: Starting scan. info=$info, context=$context")
+            
             val recordingList = if (info == null) {
+                Log.w(TAG, "scanRecordings: No storage info available")
                 emptyList()
             } else {
-                withContext(Dispatchers.IO) {
-                    if (info.treeUri == null) {
-                        scanFileDirectory(info.directory)
-                    } else {
-                        if (context == null) emptyList() else scanDocumentTree(context, info)
+                try {
+                    withContext(Dispatchers.IO) {
+                        if (info.treeUri == null) {
+                            Log.d(TAG, "scanRecordings: Scanning file directory: ${info.directory.absolutePath}")
+                            scanFileDirectory(info.directory)
+                        } else {
+                            Log.d(TAG, "scanRecordings: Scanning document tree: ${info.treeUri}")
+                            if (context == null) {
+                                Log.e(TAG, "scanRecordings: Context is null for document tree scan")
+                                emptyList()
+                            } else {
+                                scanDocumentTree(context, info)
+                            }
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "scanRecordings: Error scanning recordings", e)
+                    emptyList()
                 }
             }
 
+            Log.d(TAG, "scanRecordings: Found ${recordingList.size} recordings")
             _recordings.value = recordingList
             _isLoading.value = false
         }
     }
 
     private fun scanFileDirectory(directory: File): List<Recording> {
+        Log.d(TAG, "scanFileDirectory: Scanning ${directory.absolutePath}")
+        Log.d(TAG, "scanFileDirectory: Exists=${directory.exists()}, IsDirectory=${directory.isDirectory}")
+        
         if (!directory.exists()) {
+            Log.w(TAG, "scanFileDirectory: Directory doesn't exist, creating it")
             directory.mkdirs()
         }
 
-        return directory.listFiles()?.asSequence()
+        val files = directory.listFiles()
+        Log.d(TAG, "scanFileDirectory: listFiles() returned ${files?.size ?: 0} files")
+        
+        val recordings = files?.asSequence()
             ?.filter { file -> file.isFile && file.name.endsWith(".wav", ignoreCase = true) }
-            ?.mapNotNull { file -> WavMetadataParser.createRecording(file) }
+            ?.also { wavFiles -> Log.d(TAG, "scanFileDirectory: Found ${wavFiles.count()} WAV files") }
+            ?.mapNotNull { file -> 
+                try {
+                    WavMetadataParser.createRecording(file)
+                } catch (e: Exception) {
+                    Log.e(TAG, "scanFileDirectory: Error parsing ${file.name}", e)
+                    null
+                }
+            }
             ?.sortedByDescending { it.dateTime }
             ?.toList()
             ?: emptyList()
+            
+        Log.d(TAG, "scanFileDirectory: Returning ${recordings.size} recordings")
+        return recordings
     }
 
     private fun scanDocumentTree(context: Context, info: StorageLocationManager.StorageInfo): List<Recording> {
-        val root = StorageLocationManager.getDocumentTree(context, info.treeUri) ?: return emptyList()
-        val documents = root.listFiles()
+        Log.d(TAG, "scanDocumentTree: Scanning tree ${info.treeUri}")
+        
+        val root = StorageLocationManager.getDocumentTree(context, info.treeUri)
+        if (root == null) {
+            Log.e(TAG, "scanDocumentTree: Failed to get document tree for ${info.treeUri}")
+            return emptyList()
+        }
+        
+        Log.d(TAG, "scanDocumentTree: Got root document: ${root.uri}")
+        
+        val documents = try {
+            root.listFiles()
+        } catch (e: Exception) {
+            Log.e(TAG, "scanDocumentTree: Error listing files in document tree", e)
+            return emptyList()
+        }
+        
+        Log.d(TAG, "scanDocumentTree: listFiles() returned ${documents.size} documents")
 
-        return documents.asSequence()
-            .filter { doc -> doc.isFile && (doc.name?.endsWith(".wav", ignoreCase = true) == true) }
+        val recordings = documents.asSequence()
+            .filter { doc -> 
+                val isWav = doc.isFile && (doc.name?.endsWith(".wav", ignoreCase = true) == true)
+                if (isWav) Log.d(TAG, "scanDocumentTree: Found WAV file: ${doc.name}")
+                isWav
+            }
             .mapNotNull { doc ->
-                val absolutePath = StorageLocationManager.documentUriToAbsolutePath(context, doc.uri)
-                val fallbackFile = absolutePath?.let { File(it) }?.takeIf { it.exists() }
-                val displayPath = absolutePath ?: doc.uri.toString()
-                WavMetadataParser.createRecording(
-                    context = context,
-                    documentFile = doc,
-                    fallbackFile = fallbackFile,
-                    displayPath = displayPath
-                )
+                try {
+                    val absolutePath = StorageLocationManager.documentUriToAbsolutePath(context, doc.uri)
+                    val fallbackFile = absolutePath?.let { File(it) }?.takeIf { it.exists() }
+                    val displayPath = absolutePath ?: doc.uri.toString()
+                    WavMetadataParser.createRecording(
+                        context = context,
+                        documentFile = doc,
+                        fallbackFile = fallbackFile,
+                        displayPath = displayPath
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "scanDocumentTree: Error parsing ${doc.name}", e)
+                    null
+                }
             }
             .sortedByDescending { it.dateTime }
             .toList()
+            
+        Log.d(TAG, "scanDocumentTree: Returning ${recordings.size} recordings")
+        return recordings
     }
 
     fun selectRecording(recording: Recording) {

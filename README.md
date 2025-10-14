@@ -30,12 +30,51 @@ An Android app for capturing and reviewing the full 84-channel output of the spc
 
 ## Build & Install
 
+Build debug version (with debug logging and symbols):
 ```powershell
 cd d:\Audio_Projects\Android_spcmic_recorder
 .\gradlew.bat assembleDebug
 ```
 
-Install the resulting APK from `app/build/outputs/apk/debug/` onto a USB-host capable device. When connecting the spcmic, accept the USB permission dialog and choose "Use by default" for smoother reconnects.
+Build release version (optimized, smaller size):
+```powershell
+.\gradlew.bat assembleRelease
+```
+
+Build both versions:
+```powershell
+.\gradlew.bat assemble
+```
+
+**Output locations**:
+- Debug APK: `app/build/outputs/apk/debug/app-debug.apk`
+- Release APK: `app/build/outputs/apk/release/app-release.apk`
+
+### Install to Connected Device
+
+Install debug build (connect device via USB with debugging enabled):
+```powershell
+.\gradlew.bat installDebug
+```
+
+Install release build:
+```powershell
+.\gradlew.bat installRelease
+```
+
+Uninstall debug build:
+```powershell
+.\gradlew.bat uninstallDebug
+```
+
+Uninstall release build:
+```powershell
+.\gradlew.bat uninstallRelease
+```
+
+When connecting the spcmic, accept the USB permission dialog and choose "Use by default" for smoother reconnects.
+
+**Note**: The release build currently uses the debug keystore for signing. For production distribution, configure a proper signing key in `app/build.gradle`.
 
 ## Recording Workflow
 

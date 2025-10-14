@@ -28,10 +28,39 @@ android {
         }
     }
 
-    buildTypes {
+    signingConfigs {
+        debug {
+            // Debug uses the default Android debug keystore
+        }
         release {
+            // For now, use debug signing for release builds
+            // In production, replace with your actual signing key
+            storeFile file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+    
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+            debuggable true
+        }
+        
+        release {
+            signingConfig signingConfigs.release
             minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            debuggable false
+            
+            // Native optimization flags already set in CMakeLists.txt
+            ndk {
+                debugSymbolLevel 'FULL'  // Keep symbols for crash reporting
+            }
         }
     }
     

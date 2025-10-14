@@ -10,6 +10,8 @@ import android.hardware.usb.UsbManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -47,6 +49,7 @@ class RecordFragment : Fragment() {
     
     private lateinit var requestPermissionLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var storagePickerLauncher: ActivityResultLauncher<Uri?>
+    private lateinit var manageStorageLauncher: ActivityResultLauncher<Intent>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,9 +59,27 @@ class RecordFragment : Fragment() {
         ) { permissions ->
             val allGranted = permissions.all { it.value }
             if (allGranted) {
-                initializeAudioRecorder()
+                checkStoragePermissions()
             } else {
                 Toast.makeText(requireContext(), "Audio recording permission is required", Toast.LENGTH_LONG).show()
+            }
+        }
+        
+        manageStorageLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { _ ->
+            // Check if permission was granted
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (Environment.isExternalStorageManager()) {
+                    Log.i("RecordFragment", "MANAGE_EXTERNAL_STORAGE permission granted")
+                    initializeAudioRecorder()
+                } else {
+                    Log.w("RecordFragment", "MANAGE_EXTERNAL_STORAGE permission denied - file listing may not work on internal storage")
+                    Toast.makeText(requireContext(), 
+                        "Storage permission required for accessing recordings on internal storage. You can still use external USB/SD storage.", 
+                        Toast.LENGTH_LONG).show()
+                    initializeAudioRecorder()
+                }
             }
         }
 
@@ -347,6 +368,47 @@ class RecordFragment : Fragment() {
         if (permissionsNeeded.isNotEmpty()) {
             requestPermissionLauncher.launch(permissionsNeeded.toTypedArray())
         } else {
+            checkStoragePermissions()
+        }
+    }
+    
+    private fun checkStoragePermissions() {
+        // Android 11+ requires MANAGE_EXTERNAL_STORAGE for broad file access
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                Log.i("RecordFragment", "MANAGE_EXTERNAL_STORAGE not granted - requesting for internal storage access")
+                
+                AlertDialog.Builder(requireContext())
+                    .setTitle("Storage Access Required")
+                    .setMessage("To list and playback recordings from internal storage, this app needs file management access.\n\n" +
+                               "This is required by Android 11+ for apps that work with audio files.\n\n" +
+                               "You can skip this if you only use external USB/SD storage.")
+                    .setPositiveButton("Grant Access") { _, _ ->
+                        try {
+                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                data = Uri.parse("package:${requireContext().packageName}")
+                            }
+                            manageStorageLauncher.launch(intent)
+                        } catch (e: Exception) {
+                            Log.e("RecordFragment", "Failed to request MANAGE_EXTERNAL_STORAGE", e)
+                            Toast.makeText(requireContext(), 
+                                "Unable to request storage permission. Please enable it manually in Settings.", 
+                                Toast.LENGTH_LONG).show()
+                            initializeAudioRecorder()
+                        }
+                    }
+                    .setNegativeButton("Skip (Use External Storage)") { _, _ ->
+                        Log.i("RecordFragment", "User skipped MANAGE_EXTERNAL_STORAGE - external storage only")
+                        initializeAudioRecorder()
+                    }
+                    .setCancelable(false)
+                    .show()
+            } else {
+                Log.i("RecordFragment", "MANAGE_EXTERNAL_STORAGE already granted")
+                initializeAudioRecorder()
+            }
+        } else {
+            // Android 10 and below - no special permission needed
             initializeAudioRecorder()
         }
     }

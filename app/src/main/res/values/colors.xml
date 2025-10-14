@@ -40,6 +40,11 @@
     <color name="gradient_purple_mid">#8B5CF6</color> <!-- Purple -->
     <color name="gradient_purple_end">#D946EF</color> <!-- Fuchsia -->
     <color name="gradient_overlay">#1A000000</color> <!-- 10% black overlay -->
+    
+    <!-- Additional gradient colors (used in dark mode too) -->
+    <color name="gradient_start">#6366F1</color>     <!-- Indigo (light mode) -->
+    <color name="gradient_middle">#8B5CF6</color>    <!-- Purple (light mode) -->
+    <color name="gradient_end">#D946EF</color>       <!-- Fuchsia (light mode) -->
 
     <!-- UI accents -->
     <color name="clip_indicator_idle">#10B981</color> <!-- Emerald green -->
@@ -53,6 +58,7 @@
     <color name="status_connected">#10B981</color> <!-- Green -->
     <color name="status_disconnected">#6B7280</color> <!-- Gray -->
     <color name="status_recording">#EF4444</color> <!-- Red -->
+    <color name="status_clipping">#F59E0B</color> <!-- Amber warning -->
     
     <!-- Button states -->
     <color name="button_recording">#DC2626</color>
