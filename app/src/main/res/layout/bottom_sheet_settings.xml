@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="24dp"
+        android:text="Settings"
+        android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
+        android:textColor="@color/brand_on_surface"
+        android:textStyle="bold" />
+
+    <!-- Storage Location Section -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        android:text="@string/storage_location_title"
+        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+        android:textColor="@color/brand_on_surface"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvStoragePathSheet"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+        android:textColor="@color/brand_on_surface_variant"
+        android:ellipsize="middle"
+        android:maxLines="2"
+        android:text="/storage/emulated/0/Documents/SPCMicRecorder" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnChangeStorage"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="24dp"
+        android:text="@string/storage_location_change"
+        android:textAllCaps="false"
+        app:icon="@drawable/ic_folder"
+        app:iconGravity="textStart"
+        app:cornerRadius="20dp"
+        app:strokeColor="@color/brand_primary" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginBottom="24dp"
+        android:background="@color/card_stroke" />
+
+    <!-- Clip Reset Section -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        android:text="Audio Monitoring"
+        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+        android:textColor="@color/brand_on_surface"
+        android:textStyle="bold" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnResetClipSheet"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/reset_clip"
+        android:textAllCaps="false"
+        app:icon="@drawable/ic_check_circle"
+        app:iconGravity="textStart"
+        app:cornerRadius="20dp"
+        app:strokeColor="@color/brand_primary" />
+
+</LinearLayout>

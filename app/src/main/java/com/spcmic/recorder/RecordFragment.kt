@@ -76,7 +76,10 @@ class RecordFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentRecordBinding.inflate(inflater, container, false)
+        // Using the new dashboard layout
+        _binding = FragmentRecordBinding.bind(
+            inflater.inflate(R.layout.fragment_record_dashboard, container, false)
+        )
         return binding.root
     }
     
@@ -194,7 +197,8 @@ class RecordFragment : Fragment() {
                 }
             }
 
-            btnResetClip.setOnClickListener {
+            // Clip indicator - make the whole card clickable to reset
+            clipIndicatorContainer.setOnClickListener {
                 if (::audioRecorder.isInitialized) {
                     audioRecorder.resetClipIndicator()
                 } else {
@@ -203,9 +207,10 @@ class RecordFragment : Fragment() {
             }
 
             updateClipIndicator(viewModel.isClipping.value ?: false)
-            btnChangeStorage.setOnClickListener {
-                val initial = currentStorageInfo?.treeUri
-                storagePickerLauncher.launch(initial)
+            
+            // Settings button opens bottom sheet
+            btnSettings.setOnClickListener {
+                showSettingsBottomSheet()
             }
         }
     }
@@ -504,7 +509,39 @@ class RecordFragment : Fragment() {
         
         icon.setImageResource(iconRes)
         icon.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(requireContext(), colorRes))
-        indicator.text = if (isClipping) getString(R.string.clipping_detected) else getString(R.string.no_clipping_detected)
+        indicator.text = if (isClipping) "Clip!" else getString(R.string.no_clip_short)
+    }
+
+    private fun showSettingsBottomSheet() {
+        // Create a bottom sheet dialog for settings
+        val bottomSheet = com.google.android.material.bottomsheet.BottomSheetDialog(requireContext())
+        val sheetView = layoutInflater.inflate(R.layout.bottom_sheet_settings, null)
+        
+        // Setup storage location button
+        val btnChangeStorage = sheetView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnChangeStorage)
+        val tvStoragePath = sheetView.findViewById<android.widget.TextView>(R.id.tvStoragePathSheet)
+        
+        tvStoragePath.text = currentStorageInfo?.displayPath ?: "Unknown"
+        
+        btnChangeStorage.setOnClickListener {
+            val initial = currentStorageInfo?.treeUri
+            storagePickerLauncher.launch(initial)
+            bottomSheet.dismiss()
+        }
+        
+        // Add reset clip button
+        val btnResetClip = sheetView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnResetClipSheet)
+        btnResetClip?.setOnClickListener {
+            if (::audioRecorder.isInitialized) {
+                audioRecorder.resetClipIndicator()
+            } else {
+                viewModel.clearClipping()
+            }
+            bottomSheet.dismiss()
+        }
+        
+        bottomSheet.setContentView(sheetView)
+        bottomSheet.show()
     }
 
     private fun formatSampleRate(rate: Int?): String {

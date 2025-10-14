@@ -37,4 +37,5 @@
     <string name="storage_location_hint">Recordings and exports are stored in this directory.</string>
     <string name="storage_location_updated">Storage location updated</string>
     <string name="storage_location_failed">Unable to switch to the selected directory</string>
+    <string name="no_clip_short">No Clip</string>
 </resources>
