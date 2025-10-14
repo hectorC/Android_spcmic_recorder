@@ -238,13 +238,78 @@
 
         </LinearLayout>
 
-        <!-- Bottom Row: Storage Location (Full Width) -->
+        <!-- SECTION 4: CONTROLS (Spinner + Buttons) -->
+        <LinearLayout
+            android:id="@+id/controlsContainer"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:baselineAligned="false"
+            app:layout_constraintTop_toBottomOf="@id/statusRow"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <!-- Sample Rate Selector -->
+            <Spinner
+                android:id="@+id/spinnerSampleRate"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="12dp"
+                android:spinnerMode="dropdown"
+                android:background="@drawable/spinner_background"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:prompt="@string/sample_rate_title" />
+
+            <!-- Refresh Button -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRefreshDevices"
+                style="@style/Widget.Material3.Button.TonalButton.Icon"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginEnd="8dp"
+                android:insetLeft="0dp"
+                android:insetTop="0dp"
+                android:insetRight="0dp"
+                android:insetBottom="0dp"
+                android:contentDescription="@string/refresh_devices"
+                app:icon="@drawable/ic_refresh"
+                app:iconTint="@color/brand_primary"
+                app:iconPadding="0dp"
+                app:iconGravity="textStart"
+                app:backgroundTint="@color/brand_secondary_container"
+                app:cornerRadius="28dp" />
+
+            <!-- Settings Button -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSettings"
+                style="@style/Widget.Material3.Button.TonalButton.Icon"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:insetLeft="0dp"
+                android:insetTop="0dp"
+                android:insetRight="0dp"
+                android:insetBottom="0dp"
+                android:contentDescription="Settings"
+                app:icon="@drawable/ic_settings"
+                app:iconTint="@color/brand_primary"
+                app:iconPadding="0dp"
+                app:iconGravity="textStart"
+                app:backgroundTint="@color/brand_secondary_container"
+                app:cornerRadius="28dp" />
+
+        </LinearLayout>
+
+        <!-- SECTION 5: Storage Location (Full Width) -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/storageCard"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            app:layout_constraintTop_toBottomOf="@id/statusRow"
+            app:layout_constraintTop_toBottomOf="@id/controlsContainer"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:cardBackgroundColor="@color/card_surface"
@@ -301,72 +366,7 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- SECTION 4: CONTROLS AT BOTTOM -->
-        <!-- Sample Rate & Settings Row -->
-        <LinearLayout
-            android:id="@+id/controlsContainer"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:baselineAligned="false"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent">
-
-            <!-- Sample Rate Selector -->
-            <Spinner
-                android:id="@+id/spinnerSampleRate"
-                android:layout_width="0dp"
-                android:layout_height="56dp"
-                android:layout_weight="1"
-                android:layout_marginEnd="12dp"
-                android:spinnerMode="dropdown"
-                android:background="@drawable/spinner_background"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:prompt="@string/sample_rate_title" />
-
-            <!-- Refresh Button -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRefreshDevices"
-                style="@style/Widget.Material3.Button.TonalButton.Icon"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:layout_marginEnd="8dp"
-                android:insetLeft="0dp"
-                android:insetTop="0dp"
-                android:insetRight="0dp"
-                android:insetBottom="0dp"
-                android:contentDescription="@string/refresh_devices"
-                app:icon="@drawable/ic_refresh"
-                app:iconTint="@color/brand_primary"
-                app:iconPadding="0dp"
-                app:iconGravity="textStart"
-                app:backgroundTint="@color/brand_secondary_container"
-                app:cornerRadius="28dp" />
-
-            <!-- Settings Button -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSettings"
-                style="@style/Widget.Material3.Button.TonalButton.Icon"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:insetLeft="0dp"
-                android:insetTop="0dp"
-                android:insetRight="0dp"
-                android:insetBottom="0dp"
-                android:contentDescription="Settings"
-                app:icon="@drawable/ic_settings"
-                app:iconTint="@color/brand_primary"
-                app:iconPadding="0dp"
-                app:iconGravity="textStart"
-                app:backgroundTint="@color/brand_secondary_container"
-                app:cornerRadius="28dp" />
-
-        </LinearLayout>
-
-        <!-- Optional: Scrollable info section between status and controls -->
+        <!-- Optional: Scrollable info section (HIDDEN) -->
         <!-- HIDDEN - This info should be in Settings sheet instead -->
         <androidx.core.widget.NestedScrollView
             android:layout_width="0dp"
@@ -376,7 +376,7 @@
             android:fillViewport="true"
             android:visibility="gone"
             app:layout_constraintTop_toBottomOf="@id/storageCard"
-            app:layout_constraintBottom_toTopOf="@id/controlsContainer"
+            app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
 
