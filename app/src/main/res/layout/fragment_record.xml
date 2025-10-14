@@ -28,6 +28,7 @@
             app:title="@string/app_title"
             app:titleCentered="true"
             app:titleMarginTop="-8dp"
+            app:titleTextAppearance="@style/TextAppearance.App.TitleLarge.Bold"
             app:titleTextColor="@color/white" />
 
     </com.google.android.material.appbar.AppBarLayout>

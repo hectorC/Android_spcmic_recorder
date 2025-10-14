@@ -18,4 +18,9 @@
         <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
     </style>
+
+    <!-- Custom text appearance for bold toolbar title -->
+    <style name="TextAppearance.App.TitleLarge.Bold" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textStyle">bold</item>
+    </style>
 </resources>
