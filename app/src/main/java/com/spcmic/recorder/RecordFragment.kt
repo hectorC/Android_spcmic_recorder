@@ -527,6 +527,35 @@ class RecordFragment : Fragment() {
             bottomSheet.dismiss()
         }
         
+        // Populate device information
+        val tvSampleRateStatus = sheetView.findViewById<android.widget.TextView>(R.id.tvSampleRateStatusSheet)
+        val tvNegotiatedSampleRate = sheetView.findViewById<android.widget.TextView>(R.id.tvNegotiatedSampleRateSheet)
+        val tvSampleRateSupport = sheetView.findViewById<android.widget.TextView>(R.id.tvSampleRateSupportSheet)
+        
+        tvSampleRateStatus?.text = "Selected: ${formatSampleRate(viewModel.selectedSampleRate.value)}"
+        tvNegotiatedSampleRate?.text = "Device: ${formatSampleRate(viewModel.negotiatedSampleRate.value)}"
+        
+        val supportsContinuous = viewModel.supportsContinuousSampleRate.value == true
+        val supportText = if (supportsContinuous) {
+            val range = viewModel.continuousSampleRateRange.value
+            if (range != null && range.first > 0 && range.second > 0) {
+                "Capabilities: ${formatSampleRate(range.first)} – ${formatSampleRate(range.second)}"
+            } else {
+                "Capabilities: Continuous rate supported"
+            }
+        } else {
+            if (currentSupportedSampleRates.isEmpty()) {
+                "Capabilities: Unknown"
+            } else {
+                "Capabilities: Discrete rates supported"
+            }
+        }
+        tvSampleRateSupport?.text = supportText
+        
+        // Populate recording configuration
+        val tvSampleRateInfo = sheetView.findViewById<android.widget.TextView>(R.id.tvSampleRateInfoSheet)
+        tvSampleRateInfo?.text = "• Sample Rate: ${formatSampleRate(viewModel.selectedSampleRate.value)}"
+        
         // Add reset clip button
         val btnResetClip = sheetView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnResetClipSheet)
         btnResetClip?.setOnClickListener {

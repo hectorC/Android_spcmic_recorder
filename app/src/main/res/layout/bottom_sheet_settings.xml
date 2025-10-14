@@ -55,6 +55,119 @@
         android:layout_marginBottom="24dp"
         android:background="@color/card_stroke" />
 
+    <!-- Device Information Section -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        android:text="Device Information"
+        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+        android:textColor="@color/brand_on_surface"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/brand_surface_variant"
+        android:padding="16dp"
+        android:layout_marginBottom="24dp">
+
+        <TextView
+            android:id="@+id/tvSampleRateStatusSheet"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="Selected: 48 kHz"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:textColor="@color/brand_on_surface" />
+
+        <TextView
+            android:id="@+id/tvNegotiatedSampleRateSheet"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="Device: 48 kHz"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:textColor="@color/brand_on_surface" />
+
+        <TextView
+            android:id="@+id/tvSampleRateSupportSheet"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Capabilities: Unknown"
+            android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+            android:textColor="@color/brand_on_surface_variant" />
+
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginBottom="24dp"
+        android:background="@color/card_stroke" />
+
+    <!-- Recording Configuration Section -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        android:text="@string/recording_configuration_title"
+        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+        android:textColor="@color/brand_on_surface"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/brand_surface_variant"
+        android:padding="16dp"
+        android:layout_marginBottom="24dp">
+
+        <TextView
+            android:id="@+id/tvChannelInfoSheet"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="• 84 Channels"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:textColor="@color/brand_on_surface" />
+
+        <TextView
+            android:id="@+id/tvSampleRateInfoSheet"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="• Sample Rate: 48 kHz"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:textColor="@color/brand_on_surface" />
+
+        <TextView
+            android:id="@+id/tvBitDepthInfoSheet"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="• 24-bit Depth"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:textColor="@color/brand_on_surface" />
+
+        <TextView
+            android:id="@+id/tvFormatInfoSheet"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="• Uncompressed WAV Format"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:textColor="@color/brand_on_surface" />
+
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginBottom="24dp"
+        android:background="@color/card_stroke" />
+
     <!-- Clip Reset Section -->
     <TextView
         android:layout_width="match_parent"
