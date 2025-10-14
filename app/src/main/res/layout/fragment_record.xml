@@ -79,12 +79,14 @@
                     android:textAppearance="@style/TextAppearance.Material3.DisplayLarge"
                     android:textStyle="bold"
                     android:textColor="@color/brand_on_surface"
-                    android:letterSpacing="0.05"
+                    android:letterSpacing="0"
                     android:fontFamily="monospace"
                     android:includeFontPadding="false"
                     android:maxLines="1"
-                    android:textAlignment="center"
-                    android:textSize="56sp" />
+                    android:gravity="center"
+                    android:textSize="56sp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp" />
 
                 <TextView
                     android:id="@+id/tvRecordingFilename"
