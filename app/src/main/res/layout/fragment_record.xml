@@ -73,7 +73,7 @@
 
                 <TextView
                     android:id="@+id/tvRecordingTime"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="00:00:00"
                     android:textAppearance="@style/TextAppearance.Material3.DisplayLarge"
@@ -83,6 +83,7 @@
                     android:fontFamily="monospace"
                     android:includeFontPadding="false"
                     android:maxLines="1"
+                    android:textAlignment="center"
                     android:textSize="56sp" />
 
                 <TextView
@@ -103,7 +104,8 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- SECTION 2: COMPACT STATUS ROW -->
+        <!-- SECTION 2: COMPACT STATUS CARDS -->
+        <!-- Top Row: USB and Clip Indicator -->
         <LinearLayout
             android:id="@+id/statusRow"
             android:layout_width="0dp"
@@ -152,68 +154,13 @@
                         android:id="@+id/tvConnectionStatus"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="No USB"
+                        android:text="USB Audio Device Conn..."
                         android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
                         android:textColor="@color/brand_on_surface_variant"
                         android:textAlignment="center"
                         android:maxLines="2"
                         android:textSize="11sp"
                         android:ellipsize="end" />
-
-                </LinearLayout>
-
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- Storage Location -->
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="6dp"
-                app:cardBackgroundColor="@color/card_surface"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp"
-                app:strokeColor="@color/card_stroke"
-                app:strokeWidth="0dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:orientation="vertical"
-                    android:padding="12dp"
-                    android:gravity="center">
-
-                    <ImageView
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
-                        android:layout_marginBottom="6dp"
-                        android:src="@drawable/ic_folder"
-                        android:tint="@color/brand_primary"
-                        android:contentDescription="@string/storage_location_title" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="4dp"
-                        android:text="STORAGE"
-                        android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
-                        android:textColor="@color/brand_on_surface_variant"
-                        android:textAlignment="center"
-                        android:textSize="10sp"
-                        android:textAllCaps="true" />
-
-                    <TextView
-                        android:id="@+id/tvStoragePath"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                        android:textColor="@color/brand_on_surface_variant"
-                        android:textAlignment="center"
-                        android:maxLines="2"
-                        android:textSize="11sp"
-                        android:ellipsize="middle"
-                        tools:text="/mnt/..." />
 
                 </LinearLayout>
 
@@ -264,6 +211,69 @@
             </com.google.android.material.card.MaterialCardView>
 
         </LinearLayout>
+
+        <!-- Bottom Row: Storage Location (Full Width) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/storageCard"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            app:layout_constraintTop_toBottomOf="@id/statusRow"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:cardBackgroundColor="@color/card_surface"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp"
+            app:strokeColor="@color/card_stroke"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="12dp"
+                android:gravity="center_vertical">
+
+                <ImageView
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_marginEnd="12dp"
+                    android:src="@drawable/ic_folder"
+                    android:tint="@color/brand_primary"
+                    android:contentDescription="@string/storage_location_title" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="2dp"
+                        android:text="STORAGE"
+                        android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
+                        android:textColor="@color/brand_on_surface_variant"
+                        android:textSize="10sp"
+                        android:textAllCaps="true" />
+
+                    <TextView
+                        android:id="@+id/tvStoragePath"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/brand_on_surface"
+                        android:maxLines="1"
+                        android:textSize="12sp"
+                        android:ellipsize="middle"
+                        tools:text="/mnt/media_rw/..." />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
 
         <!-- SECTION 3: CONTROLS AT BOTTOM -->
         <LinearLayout
@@ -367,7 +377,7 @@
             android:layout_marginBottom="20dp"
             android:fillViewport="true"
             android:visibility="gone"
-            app:layout_constraintTop_toBottomOf="@id/statusRow"
+            app:layout_constraintTop_toBottomOf="@id/storageCard"
             app:layout_constraintBottom_toTopOf="@id/controlsContainer"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
