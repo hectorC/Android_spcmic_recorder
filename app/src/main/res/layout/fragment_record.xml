@@ -288,13 +288,14 @@
                 <Spinner
                     android:id="@+id/spinnerSampleRate"
                     android:layout_width="0dp"
-                    android:layout_height="48dp"
+                    android:layout_height="56dp"
                     android:layout_weight="1"
                     android:layout_marginEnd="12dp"
                     android:spinnerMode="dropdown"
                     android:background="@drawable/spinner_background"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp" />
+                    android:paddingStart="20dp"
+                    android:paddingEnd="20dp"
+                    android:prompt="@string/sample_rate_title" />
 
                 <!-- Refresh Button -->
                 <com.google.android.material.button.MaterialButton
@@ -358,12 +359,14 @@
         </LinearLayout>
 
         <!-- Optional: Scrollable info section between status and controls -->
+        <!-- HIDDEN - This info should be in Settings sheet instead -->
         <androidx.core.widget.NestedScrollView
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:layout_marginTop="20dp"
             android:layout_marginBottom="20dp"
             android:fillViewport="true"
+            android:visibility="gone"
             app:layout_constraintTop_toBottomOf="@id/statusRow"
             app:layout_constraintBottom_toTopOf="@id/controlsContainer"
             app:layout_constraintStart_toStartOf="parent"

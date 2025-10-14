@@ -152,7 +152,7 @@ class RecordFragment : Fragment() {
             sampleRateAdapter = ArrayAdapter(
                 requireContext(),
                 android.R.layout.simple_spinner_item,
-                mutableListOf()
+                mutableListOf("48 kHz") // Default placeholder
             )
             sampleRateAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             spinnerSampleRate.adapter = sampleRateAdapter
