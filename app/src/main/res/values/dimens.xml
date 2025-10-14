@@ -25,4 +25,14 @@
     <dimen name="spacing_md">16dp</dimen>
     <dimen name="spacing_lg">24dp</dimen>
     <dimen name="spacing_xl">32dp</dimen>
+    
+    <!-- Layout dimensions (default for normal/large screens) -->
+    <dimen name="horizontal_padding">24dp</dimen>
+    <dimen name="timecode_text_size">56sp</dimen>
+    <dimen name="timecode_card_padding_vertical">40dp</dimen>
+    <dimen name="timecode_card_padding_horizontal">24dp</dimen>
+    <dimen name="section_margin_top">16dp</dimen>
+    <dimen name="record_button_text_size">20sp</dimen>
+    <dimen name="status_card_icon_size">28dp</dimen>
+    <dimen name="status_card_padding">12dp</dimen>
 </resources>

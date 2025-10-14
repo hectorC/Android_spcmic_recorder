@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dimension resources for small width devices (320dp - 359dp) -->
+<resources>
+    <!-- Layout dimensions (smaller for narrow screens) -->
+    <dimen name="horizontal_padding">16dp</dimen>
+    <dimen name="timecode_text_size">44sp</dimen>
+    <dimen name="timecode_card_padding_vertical">28dp</dimen>
+    <dimen name="timecode_card_padding_horizontal">16dp</dimen>
+    <dimen name="section_margin_top">12dp</dimen>
+    <dimen name="record_button_text_size">18sp</dimen>
+    <dimen name="status_card_icon_size">24dp</dimen>
+    <dimen name="status_card_padding">10dp</dimen>
+</resources>

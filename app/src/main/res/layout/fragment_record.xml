@@ -43,7 +43,7 @@
         <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingHorizontal="24dp"
+            android:paddingHorizontal="@dimen/horizontal_padding"
             android:paddingBottom="16dp"
             android:paddingTop="@dimen/main_content_top_padding">
 
@@ -66,8 +66,8 @@
                 android:layout_height="wrap_content"
                 android:gravity="center"
                 android:orientation="vertical"
-                android:paddingVertical="40dp"
-                android:paddingHorizontal="24dp">
+                android:paddingVertical="@dimen/timecode_card_padding_vertical"
+                android:paddingHorizontal="@dimen/timecode_card_padding_horizontal">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -92,7 +92,7 @@
                     android:includeFontPadding="false"
                     android:maxLines="1"
                     android:gravity="center"
-                    android:textSize="56sp"
+                    android:textSize="@dimen/timecode_text_size"
                     android:paddingStart="8dp"
                     android:paddingEnd="8dp" />
 
@@ -119,13 +119,13 @@
             android:id="@+id/btnRecord"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/section_margin_top"
             android:enabled="false"
             android:minHeight="72dp"
             android:text="@string/record_button_start"
             android:textAllCaps="false"
             android:textColor="@color/white"
-            android:textSize="20sp"
+            android:textSize="@dimen/record_button_text_size"
             android:textStyle="bold"
             app:icon="@drawable/ic_microphone"
             app:iconGravity="textStart"
@@ -144,7 +144,7 @@
             android:id="@+id/statusRow"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/section_margin_top"
             android:orientation="horizontal"
             app:layout_constraintTop_toBottomOf="@id/btnRecord"
             app:layout_constraintStart_toStartOf="parent"
@@ -166,12 +166,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:orientation="vertical"
-                    android:padding="12dp"
+                    android:padding="@dimen/status_card_padding"
                     android:gravity="center">
 
                     <ImageView
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
+                        android:layout_width="@dimen/status_card_icon_size"
+                        android:layout_height="@dimen/status_card_icon_size"
                         android:layout_marginBottom="6dp"
                         android:src="@drawable/ic_usb"
                         android:tint="@color/brand_primary"
@@ -217,13 +217,13 @@
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:orientation="vertical"
-                    android:padding="12dp"
+                    android:padding="@dimen/status_card_padding"
                     android:gravity="center">
 
                     <ImageView
                         android:id="@+id/ivClipIcon"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
+                        android:layout_width="@dimen/status_card_icon_size"
+                        android:layout_height="@dimen/status_card_icon_size"
                         android:layout_marginBottom="6dp"
                         android:src="@drawable/ic_check_circle"
                         android:tint="@color/clip_indicator_idle"
@@ -251,7 +251,7 @@
             android:id="@+id/controlsContainer"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/section_margin_top"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:baselineAligned="false"
@@ -318,7 +318,7 @@
             android:id="@+id/storageCard"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/section_margin_top"
             app:layout_constraintTop_toBottomOf="@id/controlsContainer"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
