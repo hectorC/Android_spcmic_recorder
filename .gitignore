@@ -101,3 +101,4 @@ log.txt
 # Third-party reference sources (kept locally only)
 saf_matrixconv/
 PRIORITY1_DUAL_THREAD_IMPLEMENTATION.md
+ADDITIONAL_STABILITY_IMPROVEMENTS.md

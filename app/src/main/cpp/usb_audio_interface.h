@@ -68,7 +68,7 @@ private:
     bool m_stuckUrbDetected;
     static const int STUCK_URB_THRESHOLD = 50; // Consider URB stuck after 50 consecutive reaps
     static const int CHECK_INTERVAL = 100; // Check for stuck URBs every 100 reaps
-    static const int NUM_URBS = 32;
+    static const int NUM_URBS = 64;  // Increased from 32 for better buffering against USB scheduling jitter
 
     // URB management - converted from static to prevent memory corruption
     struct usbdevfs_urb** m_urbs;
@@ -130,5 +130,5 @@ private:
     uint32_t m_minContinuousSampleRate;
     uint32_t m_maxContinuousSampleRate;
 
-    static constexpr size_t MAX_URB_BUFFER_BYTES = 64 * 1024;
+    static constexpr size_t MAX_URB_BUFFER_BYTES = 128 * 1024;  // Increased from 64KB for lower overhead
 };
