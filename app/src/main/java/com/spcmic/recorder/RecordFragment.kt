@@ -76,10 +76,7 @@ class RecordFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        // Using the new dashboard layout
-        _binding = FragmentRecordBinding.bind(
-            inflater.inflate(R.layout.fragment_record_dashboard, container, false)
-        )
+        _binding = FragmentRecordBinding.inflate(inflater, container, false)
         return binding.root
     }
     
@@ -266,7 +263,8 @@ class RecordFragment : Fragment() {
         }
 
         viewModel.channelLevels.observe(viewLifecycleOwner) { levels ->
-            binding.levelMeterView.updateLevels(levels)
+            // Level meter view removed in dashboard design
+            // Could be added back as optional overlay if needed
         }
 
         viewModel.isClipping.observe(viewLifecycleOwner) { isClipping ->
@@ -575,22 +573,22 @@ class RecordFragment : Fragment() {
         }
         binding.btnRecord.startAnimation(recordingPulseAnimation)
         
-        // Update timer card to recording style
-        val timerCard = binding.timerCard
-        timerCard.setCardBackgroundColor(ContextCompat.getColor(requireContext(), R.color.card_surface))
-        timerCard.cardElevation = resources.getDimension(R.dimen.card_elevation_recording)
-        timerCard.strokeWidth = 0
+        // Update timecode card to recording style
+        val timecodeCard = binding.timecodeCard
+        timecodeCard.setCardBackgroundColor(ContextCompat.getColor(requireContext(), R.color.card_surface))
+        timecodeCard.cardElevation = resources.getDimension(R.dimen.card_elevation_recording)
+        timecodeCard.strokeWidth = 0
     }
     
     private fun stopRecordingAnimations() {
         // Stop button pulse
         binding.btnRecord.clearAnimation()
         
-        // Reset timer card to idle style
-        val timerCard = binding.timerCard
-        timerCard.setCardBackgroundColor(ContextCompat.getColor(requireContext(), R.color.card_surface))
-        timerCard.cardElevation = resources.getDimension(R.dimen.card_elevation)
-        timerCard.strokeWidth = resources.getDimensionPixelSize(R.dimen.spacing_xs) / 4
+        // Reset timecode card to idle style
+        val timecodeCard = binding.timecodeCard
+        timecodeCard.setCardBackgroundColor(ContextCompat.getColor(requireContext(), R.color.card_surface))
+        timecodeCard.cardElevation = resources.getDimension(R.dimen.card_elevation)
+        timecodeCard.strokeWidth = resources.getDimensionPixelSize(R.dimen.spacing_xs) / 4
     }
     
     private fun startClipWarningAnimation() {
