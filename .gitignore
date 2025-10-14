@@ -12,6 +12,7 @@
 bin/
 gen/
 out/
+.vscode/
 
 # Gradle files
 .gradle/
@@ -99,3 +100,4 @@ app_crash_full.txt
 log.txt
 # Third-party reference sources (kept locally only)
 saf_matrixconv/
+PRIORITY1_DUAL_THREAD_IMPLEMENTATION.md
