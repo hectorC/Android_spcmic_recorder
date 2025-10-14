@@ -46,11 +46,12 @@ Install the resulting APK from `app/build/outputs/apk/debug/` onto a USB-host ca
 5. **Record** – Tap **Start Recording**. The UI shows elapsed time and the destination filename (e.g., `spcmic_recording_YYYYMMDD_HHMMSS.wav`).
 6. **Stop** – Tap **Stop Recording** to finalize the file. Headers are back-filled with the negotiated format before the file is closed.
 
-Recorded WAV files live in:
+Recorded WAV files can be saved to:
 
-```
-/storage/emulated/0/Documents/spcmicRecorder/
-```
+- **Default location**: `/storage/emulated/0/Documents/spcmicRecorder/`
+- **Custom location**: Use the "Storage Location" button in the Record tab to select any directory via Storage Access Framework (SAF)
+
+The app supports both direct filesystem access and SAF for maximum flexibility.
 
 ## Playback & Export Workflow
 
@@ -73,7 +74,11 @@ Recorded WAV files live in:
 ## Architecture Notes
 
 - **MVVM on the UI layer** with ViewModels, LiveData, and coroutines managing long-running tasks.
-- **Native USB pipeline** built with C++ and OpenSL ES for precise control over isochronous transfers and buffer timing.
+- **Dual-thread recording pipeline** with lock-free ring buffer (4 MB) decoupling USB reads from disk writes for dropout-free capture.
+- **64 URB queue** providing ~6-7 seconds of USB buffering plus ~3 seconds in the application ring buffer for resilience against system load.
+- **Foreground service** with URGENT_AUDIO priority ensuring the recording process receives preferential CPU scheduling.
+- **Native USB recording pipeline** built with C++ using Linux URBs (USB Request Blocks) for precise control over isochronous transfers and buffer management.
+- **OpenSL ES playback engine** for low-latency binaural monitoring with gain control and looping.
 - **JNI bridge** exposing playback transport, gain control, and export hooks to Kotlin.
 - **Material Design 3** theming with light/dark support and accessibility-focused controls.
 - **Coroutines** orchestrating preprocessing, export rendering, and UI state updates without blocking the main thread.
@@ -85,6 +90,7 @@ Recorded WAV files live in:
 | **Device not detected** | Confirm USB Host support, power the spcmic externally if needed, and tap *Reconnect* after granting permission. |
 | **Sample-rate request fails** | Some rates live on alternate USB interface settings. Reconnect and retry with a rate listed in the spinner. |
 | **Clipping latch stays red** | Stop the take, tap **Reset**, and restart recording. Investigate source gain if the issue repeats. |
+| **Audio dropouts during recording** | Ensure sufficient free storage space, avoid heavy multitasking during recording. The app uses 10+ seconds of buffering to prevent dropouts. |
 | **Large files** | At 48 kHz/84 ch expect ~1 GB per minute. Move files off-device promptly and ensure ≥20 GB free before long sessions. |
 | **Exports missing** | Check `/Documents/spcmicRecorder/Exports/` (not the recordings directory). |
 
