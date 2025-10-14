@@ -185,8 +185,17 @@ object StorageLocationManager {
         val documentId = try {
             DocumentsContract.getDocumentId(documentUri)
         } catch (e: IllegalArgumentException) {
-            Log.e(TAG, "Unable to extract document ID from $documentUri", e)
-            return null
+            if (DocumentsContract.isTreeUri(documentUri)) {
+                try {
+                    DocumentsContract.getTreeDocumentId(documentUri)
+                } catch (inner: IllegalArgumentException) {
+                    Log.e(TAG, "Unable to extract document ID from $documentUri", inner)
+                    return null
+                }
+            } else {
+                Log.e(TAG, "Unable to extract document ID from $documentUri", e)
+                return null
+            }
         }
 
         val colonIndex = documentId.indexOf(':')

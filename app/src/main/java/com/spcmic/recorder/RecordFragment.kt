@@ -19,6 +19,7 @@ import android.view.animation.AnimationUtils
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
@@ -44,22 +45,29 @@ class RecordFragment : Fragment() {
     private var clipWarningAnimation: android.view.animation.Animation? = null
     private var currentStorageInfo: StorageLocationManager.StorageInfo? = null
     
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val allGranted = permissions.all { it.value }
-        if (allGranted) {
-            initializeAudioRecorder()
-        } else {
-            Toast.makeText(requireContext(), "Audio recording permission is required", Toast.LENGTH_LONG).show()
-        }
-    }
+    private lateinit var requestPermissionLauncher: ActivityResultLauncher<Array<String>>
+    private lateinit var storagePickerLauncher: ActivityResultLauncher<Uri?>
 
-    private val storagePickerLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        if (uri != null) {
-            handleStorageSelection(uri)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        requestPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
+            val allGranted = permissions.all { it.value }
+            if (allGranted) {
+                initializeAudioRecorder()
+            } else {
+                Toast.makeText(requireContext(), "Audio recording permission is required", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        storagePickerLauncher = registerForActivityResult(
+            ActivityResultContracts.OpenDocumentTree()
+        ) { uri ->
+            if (uri != null) {
+                handleStorageSelection(uri)
+            }
         }
     }
     
