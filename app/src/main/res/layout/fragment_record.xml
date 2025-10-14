@@ -274,6 +274,7 @@
                 android:layout_width="56dp"
                 android:layout_height="56dp"
                 android:layout_marginEnd="8dp"
+                android:padding="0dp"
                 android:insetLeft="0dp"
                 android:insetTop="0dp"
                 android:insetRight="0dp"
@@ -282,7 +283,8 @@
                 app:icon="@drawable/ic_refresh"
                 app:iconTint="@color/brand_primary"
                 app:iconPadding="0dp"
-                app:iconGravity="textStart"
+                app:iconGravity="start"
+                app:iconSize="24dp"
                 app:backgroundTint="@color/brand_secondary_container"
                 app:cornerRadius="28dp" />
 
@@ -292,6 +294,7 @@
                 style="@style/Widget.Material3.Button.TonalButton.Icon"
                 android:layout_width="56dp"
                 android:layout_height="56dp"
+                android:padding="0dp"
                 android:insetLeft="0dp"
                 android:insetTop="0dp"
                 android:insetRight="0dp"
@@ -300,7 +303,8 @@
                 app:icon="@drawable/ic_settings"
                 app:iconTint="@color/brand_primary"
                 app:iconPadding="0dp"
-                app:iconGravity="textStart"
+                app:iconGravity="start"
+                app:iconSize="24dp"
                 app:backgroundTint="@color/brand_secondary_container"
                 app:cornerRadius="28dp" />
 
