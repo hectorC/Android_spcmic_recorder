@@ -6,8 +6,10 @@
 #include <atomic>
 #include <mutex>
 #include <functional>
+#include <condition_variable>
 #include "usb_audio_interface.h"
 #include "wav_writer.h"
+#include "lock_free_ring_buffer.h"
 
 class MultichannelRecorder {
 public:
@@ -41,7 +43,15 @@ private:
     std::atomic<bool> m_isRecording;
     std::atomic<bool> m_isMonitoring;
     std::thread m_recordingThread;
+    std::thread m_diskWriteThread;
     std::thread m_monitoringThread;
+    
+    // Lock-free ring buffer for decoupling USB reads from disk writes
+    LockFreeRingBuffer* m_ringBuffer;
+    static const size_t RING_BUFFER_SIZE = 4 * 1024 * 1024;  // 4 MB ring buffer (~3.3 seconds @ 1.2 MB/s)
+    std::atomic<bool> m_diskThreadRunning;
+    std::condition_variable m_diskThreadCV;
+    std::mutex m_diskThreadMutex;
     
     // Channel level monitoring
     std::vector<float> m_channelLevels;
@@ -60,6 +70,9 @@ private:
     
     // Recording thread function
     void recordingThreadFunction();
+    
+    // Disk write thread function (separate from USB reading)
+    void diskWriteThreadFunction();
     
     // Monitoring thread function (for level meters without recording)
     void monitoringThreadFunction();

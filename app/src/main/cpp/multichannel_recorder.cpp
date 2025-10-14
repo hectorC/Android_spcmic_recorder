@@ -16,7 +16,9 @@ MultichannelRecorder::MultichannelRecorder(USBAudioInterface* audioInterface)
     , m_totalSamples(0)
     , m_sampleRate(audioInterface ? audioInterface->getEffectiveSampleRateRounded() : 48000)
     , m_clipDetected(false)
-    , m_bufferSize(DEFAULT_BUFFER_SIZE) {
+    , m_bufferSize(DEFAULT_BUFFER_SIZE)
+    , m_ringBuffer(nullptr)
+    , m_diskThreadRunning(false) {
     
     // Initialize channel levels array
     m_channelLevels.resize(CHANNEL_COUNT, 0.0f);
@@ -31,6 +33,11 @@ MultichannelRecorder::~MultichannelRecorder() {
     if (m_wavWriter) {
         delete m_wavWriter;
         m_wavWriter = nullptr;
+    }
+    
+    if (m_ringBuffer) {
+        delete m_ringBuffer;
+        m_ringBuffer = nullptr;
     }
     
     LOGI("MultichannelRecorder destroyed");
@@ -64,9 +71,18 @@ bool MultichannelRecorder::stopRecording() {
     // Signal recording thread to stop
     m_isRecording.store(false);
     
-    // Wait for recording thread to finish
+    // Wait for USB reading thread to finish
     if (m_recordingThread.joinable()) {
         m_recordingThread.join();
+    }
+    
+    // Signal disk write thread to stop and wake it up
+    m_diskThreadRunning.store(false);
+    m_diskThreadCV.notify_one();
+    
+    // Wait for disk write thread to finish
+    if (m_diskWriteThread.joinable()) {
+        m_diskWriteThread.join();
     }
     
     // Stop USB audio streaming
@@ -79,6 +95,12 @@ bool MultichannelRecorder::stopRecording() {
         m_wavWriter->close();
         delete m_wavWriter;
         m_wavWriter = nullptr;
+    }
+    
+    // Clean up ring buffer
+    if (m_ringBuffer) {
+        delete m_ringBuffer;
+        m_ringBuffer = nullptr;
     }
     
     LOGI("Recording stopped. Total samples: %zu", m_totalSamples);
@@ -139,26 +161,27 @@ void MultichannelRecorder::stopMonitoring() {
 }
 
 void MultichannelRecorder::recordingThreadFunction() {
-    LOGI("Recording thread started");
+    LOGI("USB reading thread started");
     
     if (m_bufferSize == 0) {
         m_bufferSize = DEFAULT_BUFFER_SIZE;
     }
 
     std::vector<uint8_t> buffer(m_bufferSize);
+    size_t consecutiveEmptyReads = 0;
+    size_t totalBytesRead = 0;
+    size_t bufferOverflows = 0;
     
     while (m_isRecording.load()) {
         // Read audio data from USB interface
-    size_t bytesRead = m_audioInterface->readAudioData(buffer.data(), buffer.size());
+        size_t bytesRead = m_audioInterface->readAudioData(buffer.data(), buffer.size());
         
         if (bytesRead > 0) {
-            // Process the audio buffer
-            processAudioBuffer(buffer.data(), bytesRead);
+            consecutiveEmptyReads = 0;
+            totalBytesRead += bytesRead;
             
-            // Write to WAV file
-            if (m_wavWriter) {
-                m_wavWriter->writeData(buffer.data(), bytesRead);
-            }
+            // Process the audio buffer (level meters, clip detection)
+            processAudioBuffer(buffer.data(), bytesRead);
             
             // Update total samples
             size_t samplesInBuffer = bytesRead / (CHANNEL_COUNT * BYTES_PER_SAMPLE);
@@ -166,13 +189,111 @@ void MultichannelRecorder::recordingThreadFunction() {
             
             // Calculate channel levels for UI
             calculateChannelLevels(buffer.data(), bytesRead);
+            
+            // Write to ring buffer (lock-free, non-blocking)
+            if (m_ringBuffer) {
+                size_t bytesWritten = m_ringBuffer->write(buffer.data(), bytesRead);
+                
+                if (bytesWritten < bytesRead) {
+                    // Ring buffer is full - this is a critical error indicating disk I/O can't keep up
+                    bufferOverflows++;
+                    if (bufferOverflows % 10 == 1) {  // Log every 10th overflow to avoid spam
+                        LOGE("Ring buffer overflow! Disk I/O can't keep up. Lost %zu bytes (overflow #%zu)",
+                             bytesRead - bytesWritten, bufferOverflows);
+                    }
+                }
+                
+                // Wake up disk write thread if it's waiting
+                m_diskThreadCV.notify_one();
+            }
         } else {
-            // No data available, small delay to prevent busy waiting
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            consecutiveEmptyReads++;
+            
+            // Only log if we get many consecutive empty reads (indicates potential problem)
+            if (consecutiveEmptyReads == 100) {
+                LOGE("Warning: 100 consecutive empty USB reads. Total bytes read so far: %zu", totalBytesRead);
+            }
+            
+            // Small yield to scheduler - we're ready to read more data immediately
+            // but don't want to completely starve other threads
+            std::this_thread::yield();
         }
     }
     
-    LOGI("Recording thread finished");
+    if (bufferOverflows > 0) {
+        LOGE("USB reading thread finished. Total buffer overflows: %zu", bufferOverflows);
+    } else {
+        LOGI("USB reading thread finished cleanly. Total bytes read: %zu", totalBytesRead);
+    }
+}
+
+void MultichannelRecorder::diskWriteThreadFunction() {
+    LOGI("Disk write thread started");
+    
+    // Use a larger buffer for disk writes to amortize I/O overhead
+    const size_t DISK_WRITE_BUFFER_SIZE = 256 * 1024;  // 256 KB (~200ms of audio)
+    std::vector<uint8_t> diskBuffer(DISK_WRITE_BUFFER_SIZE);
+    
+    size_t totalBytesWritten = 0;
+    size_t writeCount = 0;
+    
+    while (m_diskThreadRunning.load()) {
+        size_t bytesAvailable = m_ringBuffer ? m_ringBuffer->getAvailableBytes() : 0;
+        
+        if (bytesAvailable > 0) {
+            // Read from ring buffer
+            size_t toRead = std::min(bytesAvailable, DISK_WRITE_BUFFER_SIZE);
+            size_t bytesRead = m_ringBuffer->read(diskBuffer.data(), toRead);
+            
+            if (bytesRead > 0) {
+                // Write to WAV file
+                if (m_wavWriter) {
+                    m_wavWriter->writeData(diskBuffer.data(), bytesRead);
+                    totalBytesWritten += bytesRead;
+                    writeCount++;
+                    
+                    // Periodically log write statistics
+                    if (writeCount % 100 == 0) {
+                        size_t bufferFill = m_ringBuffer->getAvailableBytes();
+                        double fillPercent = (bufferFill * 100.0) / m_ringBuffer->getCapacity();
+                        LOGI("Disk write stats: %zu writes, %zu MB written, ring buffer %.1f%% full",
+                             writeCount, totalBytesWritten / (1024 * 1024), fillPercent);
+                    }
+                }
+            }
+        } else {
+            // Ring buffer is empty - wait for data with a timeout
+            // This prevents busy-waiting while still being responsive
+            std::unique_lock<std::mutex> lock(m_diskThreadMutex);
+            m_diskThreadCV.wait_for(lock, std::chrono::milliseconds(10), [this]() {
+                return !m_diskThreadRunning.load() || 
+                       (m_ringBuffer && m_ringBuffer->getAvailableBytes() > 0);
+            });
+        }
+    }
+    
+    // Flush remaining data in ring buffer before exiting
+    if (m_ringBuffer) {
+        size_t remainingBytes = m_ringBuffer->getAvailableBytes();
+        if (remainingBytes > 0) {
+            LOGI("Flushing %zu remaining bytes from ring buffer", remainingBytes);
+            
+            while (remainingBytes > 0) {
+                size_t toRead = std::min(remainingBytes, DISK_WRITE_BUFFER_SIZE);
+                size_t bytesRead = m_ringBuffer->read(diskBuffer.data(), toRead);
+                
+                if (bytesRead > 0 && m_wavWriter) {
+                    m_wavWriter->writeData(diskBuffer.data(), bytesRead);
+                    totalBytesWritten += bytesRead;
+                }
+                
+                remainingBytes = m_ringBuffer->getAvailableBytes();
+            }
+        }
+    }
+    
+    LOGI("Disk write thread finished. Total writes: %zu, Total bytes: %zu MB",
+         writeCount, totalBytesWritten / (1024 * 1024));
 }
 
 void MultichannelRecorder::monitoringThreadFunction() {
@@ -186,14 +307,14 @@ void MultichannelRecorder::monitoringThreadFunction() {
     
     while (m_isMonitoring.load()) {
         // Read audio data from USB interface (same as recording, but don't save to file)
-    size_t bytesRead = m_audioInterface->readAudioData(buffer.data(), buffer.size());
+        size_t bytesRead = m_audioInterface->readAudioData(buffer.data(), buffer.size());
         
         if (bytesRead > 0) {
             // Only calculate channel levels for UI (don't save to file)
             calculateChannelLevels(buffer.data(), bytesRead);
         } else {
-            // No data available, small delay to prevent busy waiting
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            // No data available, yield to scheduler instead of sleeping
+            std::this_thread::yield();
         }
     }
     
@@ -344,9 +465,22 @@ bool MultichannelRecorder::startRecordingInternal(
     m_startTime = std::chrono::high_resolution_clock::now();
     m_clipDetected.store(false);
 
+    // Create ring buffer for decoupling USB reads from disk writes
+    if (m_ringBuffer) {
+        delete m_ringBuffer;
+    }
+    m_ringBuffer = new LockFreeRingBuffer(RING_BUFFER_SIZE);
+    LOGI("Created ring buffer: %zu MB (%zu bytes)", 
+         RING_BUFFER_SIZE / (1024 * 1024), RING_BUFFER_SIZE);
+
+    // Start disk write thread first
+    m_diskThreadRunning.store(true);
+    m_diskWriteThread = std::thread(&MultichannelRecorder::diskWriteThreadFunction, this);
+    
+    // Start USB reading thread
     m_isRecording.store(true);
     m_recordingThread = std::thread(&MultichannelRecorder::recordingThreadFunction, this);
 
-    LOGI("Recording started successfully");
+    LOGI("Recording started successfully with dual-thread architecture");
     return true;
 }
