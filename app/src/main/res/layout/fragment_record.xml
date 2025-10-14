@@ -79,10 +79,11 @@
                     android:textAppearance="@style/TextAppearance.Material3.DisplayLarge"
                     android:textStyle="bold"
                     android:textColor="@color/brand_on_surface"
-                    android:letterSpacing="0.02"
+                    android:letterSpacing="0.05"
                     android:fontFamily="monospace"
                     android:includeFontPadding="false"
-                    android:textSize="64sp" />
+                    android:maxLines="1"
+                    android:textSize="56sp" />
 
                 <TextView
                     android:id="@+id/tvRecordingFilename"
@@ -116,46 +117,47 @@
             <!-- USB Status -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="6dp"
                 app:cardBackgroundColor="@color/card_surface"
-                app:cardCornerRadius="16dp"
+                app:cardCornerRadius="12dp"
                 app:cardElevation="2dp"
                 app:strokeColor="@color/card_stroke"
                 app:strokeWidth="0dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="match_parent"
                     android:orientation="vertical"
-                    android:padding="16dp"
+                    android:padding="12dp"
                     android:gravity="center">
 
                     <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_marginBottom="8dp"
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:layout_marginBottom="6dp"
                         android:src="@drawable/ic_usb"
                         android:tint="@color/brand_primary"
                         android:contentDescription="@string/usb_connection_title" />
 
                     <View
                         android:id="@+id/connectionStatusBadge"
-                        android:layout_width="8dp"
-                        android:layout_height="8dp"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
                         android:layout_marginBottom="6dp"
                         android:background="@drawable/status_badge_disconnected" />
 
                     <TextView
                         android:id="@+id/tvConnectionStatus"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/usb_device_not_found"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:text="No USB"
+                        android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
                         android:textColor="@color/brand_on_surface_variant"
                         android:textAlignment="center"
                         android:maxLines="2"
+                        android:textSize="11sp"
                         android:ellipsize="end" />
 
                 </LinearLayout>
@@ -165,50 +167,53 @@
             <!-- Storage Location -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
                 app:cardBackgroundColor="@color/card_surface"
-                app:cardCornerRadius="16dp"
+                app:cardCornerRadius="12dp"
                 app:cardElevation="2dp"
                 app:strokeColor="@color/card_stroke"
                 app:strokeWidth="0dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="match_parent"
                     android:orientation="vertical"
-                    android:padding="16dp"
+                    android:padding="12dp"
                     android:gravity="center">
 
                     <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_marginBottom="8dp"
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:layout_marginBottom="6dp"
                         android:src="@drawable/ic_folder"
                         android:tint="@color/brand_primary"
                         android:contentDescription="@string/storage_location_title" />
 
                     <TextView
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginBottom="4dp"
-                        android:text="@string/storage_location_title"
+                        android:text="STORAGE"
                         android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
                         android:textColor="@color/brand_on_surface_variant"
+                        android:textAlignment="center"
+                        android:textSize="10sp"
                         android:textAllCaps="true" />
 
                     <TextView
                         android:id="@+id/tvStoragePath"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textAppearance="@style/TextAppearance.Material3.BodySmall"
                         android:textColor="@color/brand_on_surface_variant"
                         android:textAlignment="center"
                         android:maxLines="2"
+                        android:textSize="11sp"
                         android:ellipsize="middle"
-                        tools:text="/storage/.../SPCMic" />
+                        tools:text="/mnt/..." />
 
                 </LinearLayout>
 
@@ -217,11 +222,11 @@
             <!-- Clip Indicator -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="6dp"
                 app:cardBackgroundColor="@color/card_surface"
-                app:cardCornerRadius="16dp"
+                app:cardCornerRadius="12dp"
                 app:cardElevation="2dp"
                 app:strokeColor="@color/card_stroke"
                 app:strokeWidth="0dp">
@@ -229,28 +234,29 @@
                 <LinearLayout
                     android:id="@+id/clipIndicatorContainer"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="match_parent"
                     android:orientation="vertical"
-                    android:padding="16dp"
+                    android:padding="12dp"
                     android:gravity="center">
 
                     <ImageView
                         android:id="@+id/ivClipIcon"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_marginBottom="8dp"
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:layout_marginBottom="6dp"
                         android:src="@drawable/ic_check_circle"
                         android:tint="@color/clip_indicator_idle"
                         android:contentDescription="@string/no_clipping_detected" />
 
                     <TextView
                         android:id="@+id/tvClipIndicator"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/no_clip_short"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:text="No Clip"
+                        android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
                         android:textColor="@color/brand_on_surface_variant"
                         android:textAlignment="center"
+                        android:textSize="11sp"
                         android:maxLines="1" />
 
                 </LinearLayout>
@@ -275,55 +281,57 @@
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"
                 android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:gravity="center_vertical"
+                android:baselineAligned="false">
 
-                <LinearLayout
+                <!-- Sample Rate Selector -->
+                <Spinner
+                    android:id="@+id/spinnerSampleRate"
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
+                    android:layout_height="48dp"
                     android:layout_weight="1"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:layout_marginEnd="12dp"
+                    android:spinnerMode="dropdown"
+                    android:background="@drawable/spinner_background"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp" />
 
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:layout_marginEnd="8dp"
-                        android:src="@drawable/ic_levels"
-                        android:tint="@color/brand_primary"
-                        android:contentDescription="@string/sample_rate_title" />
-
-                    <Spinner
-                        android:id="@+id/spinnerSampleRate"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:minHeight="40dp"
-                        android:spinnerMode="dropdown" />
-
-                </LinearLayout>
-
+                <!-- Refresh Button -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnRefreshDevices"
                     style="@style/Widget.Material3.Button.TonalButton.Icon"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:layout_marginEnd="8dp"
+                    android:insetLeft="0dp"
+                    android:insetTop="0dp"
+                    android:insetRight="0dp"
+                    android:insetBottom="0dp"
                     android:contentDescription="@string/refresh_devices"
                     app:icon="@drawable/ic_refresh"
                     app:iconTint="@color/brand_primary"
+                    app:iconPadding="0dp"
+                    app:iconGravity="textStart"
                     app:backgroundTint="@color/brand_secondary_container"
-                    app:cornerRadius="20dp" />
+                    app:cornerRadius="28dp" />
 
+                <!-- Settings Button -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnSettings"
                     style="@style/Widget.Material3.Button.TonalButton.Icon"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:insetLeft="0dp"
+                    android:insetTop="0dp"
+                    android:insetRight="0dp"
+                    android:insetBottom="0dp"
                     android:contentDescription="Settings"
                     app:icon="@drawable/ic_settings"
                     app:iconTint="@color/brand_primary"
+                    app:iconPadding="0dp"
+                    app:iconGravity="textStart"
                     app:backgroundTint="@color/brand_secondary_container"
-                    app:cornerRadius="20dp" />
+                    app:cornerRadius="28dp" />
 
             </LinearLayout>
 
