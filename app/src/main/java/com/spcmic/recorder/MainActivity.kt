@@ -60,16 +60,39 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun showRecordFragment() {
-        val fragment = recordFragment ?: RecordFragment().also { recordFragment = it }
-        replaceFragment(fragment)
+        if (recordFragment == null) {
+            recordFragment = RecordFragment()
+            supportFragmentManager.beginTransaction()
+                .add(R.id.fragmentContainer, recordFragment!!, "record")
+                .commit()
+        }
+        
+        // Show record, hide playback
+        supportFragmentManager.beginTransaction().apply {
+            recordFragment?.let { show(it) }
+            playbackFragment?.let { hide(it) }
+            commit()
+        }
     }
     
     private fun showPlaybackFragment() {
-        val fragment = playbackFragment ?: PlaybackFragment().also { playbackFragment = it }
-        replaceFragment(fragment)
+        if (playbackFragment == null) {
+            playbackFragment = PlaybackFragment()
+            supportFragmentManager.beginTransaction()
+                .add(R.id.fragmentContainer, playbackFragment!!, "playback")
+                .commit()
+        }
+        
+        // Show playback, hide record
+        supportFragmentManager.beginTransaction().apply {
+            playbackFragment?.let { show(it) }
+            recordFragment?.let { hide(it) }
+            commit()
+        }
     }
     
     private fun replaceFragment(fragment: Fragment) {
+        // Deprecated - using show/hide pattern instead
         supportFragmentManager.beginTransaction()
             .replace(R.id.fragmentContainer, fragment)
             .commit()

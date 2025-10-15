@@ -226,7 +226,21 @@ class USBAudioRecorder(
         }
         
         if (usbConnection == null) {
-            android.util.Log.e("USBAudioRecorder", "No USB connection established")
+            android.util.Log.e("USBAudioRecorder", "No USB connection established - connection may have been lost. Please reconnect the device.")
+            return false
+        }
+        
+        // Verify USB connection is still valid
+        try {
+            val fd = usbConnection?.fileDescriptor
+            if (fd == -1) {
+                android.util.Log.e("USBAudioRecorder", "USB connection invalid (bad file descriptor). Please reconnect the device.")
+                usbConnection = null
+                return false
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("USBAudioRecorder", "USB connection validation failed: ${e.message}")
+            usbConnection = null
             return false
         }
         

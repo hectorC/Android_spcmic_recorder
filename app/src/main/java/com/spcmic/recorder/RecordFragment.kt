@@ -113,6 +113,12 @@ class RecordFragment : Fragment() {
         checkPermissions()
         checkBatteryOptimization()
         observeViewModel()
+        
+        // Restore USB connection if fragment is being recreated but audioRecorder exists
+        if (::audioRecorder.isInitialized && viewModel.isUSBDeviceConnected.value == true) {
+            // Re-verify the connection is still valid after view recreation
+            Log.i("RecordFragment", "Restoring USB connection after view recreation")
+        }
     }
     
     fun handleUsbIntent(intent: Intent) {
@@ -690,9 +696,20 @@ class RecordFragment : Fragment() {
     
     override fun onDestroyView() {
         super.onDestroyView()
+        // Only clean up view-related resources here
+        // USB connection survives because fragment is just hidden, not destroyed
+        stopClipWarningAnimation()
+        recordingPulseAnimation = null
+        clipWarningAnimation = null
+        _binding = null
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        // Fragment is being truly destroyed (app closing, not just hidden)
+        // Clean up all resources including USB connection
         if (::audioRecorder.isInitialized) {
             audioRecorder.release()
         }
-        _binding = null
     }
 }
