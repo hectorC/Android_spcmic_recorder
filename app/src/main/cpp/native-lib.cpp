@@ -164,63 +164,6 @@ Java_com_spcmic_recorder_USBAudioRecorder_stopRecordingNative(
     return result ? JNI_TRUE : JNI_FALSE;
 }
 
-extern "C" JNIEXPORT jfloatArray JNICALL
-Java_com_spcmic_recorder_USBAudioRecorder_getChannelLevelsNative(
-        JNIEnv* env,
-        jobject thiz) {
-    
-    if (!g_recorder) {
-        return nullptr;
-    }
-    
-    // Get 84-channel levels from USB Audio Class implementation
-    std::vector<float> levels = g_recorder->getChannelLevels();
-    
-    jfloatArray result = env->NewFloatArray(levels.size());
-    if (result) {
-        env->SetFloatArrayRegion(result, 0, levels.size(), levels.data());
-    }
-    
-    return result;
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_spcmic_recorder_USBAudioRecorder_startMonitoringNative(
-        JNIEnv* env,
-        jobject thiz) {
-    
-    if (!g_recorder) {
-        LOGE("Recorder not initialized");
-        return JNI_FALSE;
-    }
-    
-    LOGI("Starting native USB Audio Class monitoring for 84-channel SPCMic");
-    bool result = g_recorder->startMonitoring();
-    
-    if (result) {
-        LOGI("Native USB Audio Class monitoring started successfully");
-    } else {
-        LOGE("Failed to start native USB Audio Class monitoring");
-    }
-    
-    return result ? JNI_TRUE : JNI_FALSE;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_spcmic_recorder_USBAudioRecorder_stopMonitoringNative(
-        JNIEnv* env,
-        jobject thiz) {
-    
-    if (!g_recorder) {
-        LOGE("Recorder not initialized");
-        return;
-    }
-    
-    LOGI("Stopping native USB Audio Class monitoring");
-    g_recorder->stopMonitoring();
-    LOGI("Native USB Audio Class monitoring stopped");
-}
-
 extern "C" JNIEXPORT void JNICALL
 Java_com_spcmic_recorder_USBAudioRecorder_releaseNativeAudio(
         JNIEnv* env,
@@ -230,7 +173,6 @@ Java_com_spcmic_recorder_USBAudioRecorder_releaseNativeAudio(
     
     if (g_recorder) {
         g_recorder->stopRecording();
-        g_recorder->stopMonitoring();
         delete g_recorder;
         g_recorder = nullptr;
     }

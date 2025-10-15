@@ -283,11 +283,6 @@ class RecordFragment : Fragment() {
             binding.tvRecordingFilename.text = if (fileName.isNullOrBlank()) " " else fileName
         }
 
-        viewModel.channelLevels.observe(viewLifecycleOwner) { levels ->
-            // Level meter view removed in dashboard design
-            // Could be added back as optional overlay if needed
-        }
-
         viewModel.isClipping.observe(viewLifecycleOwner) { isClipping ->
             updateClipIndicator(isClipping)
             

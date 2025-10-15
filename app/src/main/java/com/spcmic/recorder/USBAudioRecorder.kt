@@ -66,9 +66,6 @@ class USBAudioRecorder(
     external fun startRecordingNative(outputPath: String): Boolean
     external fun startRecordingNativeWithFd(fd: Int, absolutePath: String): Boolean
     external fun stopRecordingNative(): Boolean
-    external fun startMonitoringNative(): Boolean
-    external fun stopMonitoringNative()
-    external fun getChannelLevelsNative(): FloatArray?
     external fun releaseNativeAudio()
     external fun getSupportedSampleRatesNative(): IntArray?
     external fun supportsContinuousSampleRateNative(): Boolean
@@ -205,8 +202,6 @@ class USBAudioRecorder(
             
             viewModel.clearClipping()
             resetClipIndicatorNative()
-            // TEMPORARILY DISABLED: Level monitoring disabled to focus on clean recording
-            // startLevelMonitoring()
         } else {
             isNativeInitialized = false
             android.util.Log.e("USBAudioRecorder", "Failed to initialize native audio")
@@ -360,24 +355,6 @@ class USBAudioRecorder(
         viewModel.setNegotiatedSampleRate(negotiated)
     }
     
-    private fun startLevelMonitoring() {
-        // Start native monitoring to continuously read audio data for level meters
-        val monitoringStarted = startMonitoringNative()
-        android.util.Log.i("USBAudioRecorder", "Native monitoring started: $monitoringStarted")
-        
-        levelUpdateJob = CoroutineScope(Dispatchers.IO).launch {
-            while (usbConnection != null) {
-                val levels = getChannelLevelsNative()
-                if (levels != null && levels.size == channelCount) {
-                    withContext(Dispatchers.Main) {
-                        viewModel.updateChannelLevels(levels)
-                    }
-                }
-                delay(50) // Update levels every 50ms (20 FPS)
-            }
-        }
-    }
-    
     fun stopRecording() {
         if (!isRecording) return
         
@@ -475,13 +452,6 @@ class USBAudioRecorder(
         
         stopRecording()
         levelUpdateJob?.cancel()
-        
-        // Stop native monitoring (safe - may not be initialized yet)
-        try {
-            stopMonitoringNative()
-        } catch (e: UnsatisfiedLinkError) {
-            // Native library not loaded or method not available - that's OK
-        }
         
         // Release native resources
         try {

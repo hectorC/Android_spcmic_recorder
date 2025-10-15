@@ -24,9 +24,6 @@ class MainViewModel : ViewModel() {
     private val _recordingTime = MutableLiveData(0L)
     val recordingTime: LiveData<Long> = _recordingTime
     
-    private val _channelLevels = MutableLiveData<FloatArray>()
-    val channelLevels: LiveData<FloatArray> = _channelLevels
-
     private val _supportedSampleRates = MutableLiveData<List<Int>>(emptyList())
     val supportedSampleRates: LiveData<List<Int>> = _supportedSampleRates
 
@@ -55,8 +52,6 @@ class MainViewModel : ViewModel() {
     private var currentUSBDevice: UsbDevice? = null
     
     init {
-        // Initialize with 84 channels, all at 0 level
-        _channelLevels.value = FloatArray(84) { 0f }
         resetSampleRateState()
     _isClipping.value = false
     }
@@ -93,12 +88,6 @@ class MainViewModel : ViewModel() {
         recordingJob = null
     }
     
-    fun updateChannelLevels(levels: FloatArray) {
-        if (levels.size == 84) {
-            _channelLevels.value = levels
-        }
-    }
-
     fun updateSampleRateOptions(
         rates: List<Int>,
         supportsContinuous: Boolean,
