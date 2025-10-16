@@ -10,6 +10,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -ffast-math -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -g")
 
+# 16 KB page size support for Android 15+ (API 34+)
+# Required by Google Play starting Nov 1, 2025 for apps targeting Android 15+
+# This ensures compatibility with devices that use 16 KB memory pages
+# Note: Apply unconditionally since targetSdk is 35
+message(STATUS "Enabling 16 KB page size alignment (targetSdk 35)")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+
 option(ENABLE_ADDRESS_SANITIZER "Build native code with AddressSanitizer" OFF)
 
 set(SANITIZER_DEFINITION "")

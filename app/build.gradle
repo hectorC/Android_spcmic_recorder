@@ -29,7 +29,9 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -frtti -fexceptions"
-                arguments "-DANDROID_STL=c++_shared", "-DENABLE_ADDRESS_SANITIZER=${enableAsan ? 'ON' : 'OFF'}"
+                arguments "-DANDROID_STL=c++_static", 
+                          "-DENABLE_ADDRESS_SANITIZER=${enableAsan ? 'ON' : 'OFF'}",
+                          "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
             }
         }
 
@@ -99,6 +101,9 @@ android {
             if (enableAsan) {
                 keepDebugSymbols += ["**/libasanwrap.so"]
             }
+            // Keep debug symbols for better crash reporting
+            // 16 KB alignment is automatically handled by AGP 8.3+ and NDK r26+
+            keepDebugSymbols += ["**/arm64-v8a/*.so", "**/x86_64/*.so"]
         }
     }
 }
