@@ -158,26 +158,6 @@ void MultichannelRecorder::recordingThreadFunction() {
             // Update total samples
             size_t samplesInBuffer = bytesRead / (CHANNEL_COUNT * BYTES_PER_SAMPLE);
             m_totalSamples += samplesInBuffer;
-
-            // Check for clipping on whole samples only to avoid overruns
-            size_t remainderBytes = bytesRead % BYTES_PER_SAMPLE;
-            if (remainderBytes != 0) {
-                static int remainderWarnings = 0;
-                if (remainderWarnings < 5) {
-                    LOGE("USB buffer contained %zu trailing bytes; skipping them for clip detection", remainderBytes);
-                    remainderWarnings++;
-                }
-            }
-
-            const uint8_t* samplePtr = buffer.data();
-            for (size_t i = 0; i + BYTES_PER_SAMPLE <= bytesRead; i += BYTES_PER_SAMPLE) {
-                int32_t sampleValue = extract24BitSample(samplePtr + i);
-                constexpr int32_t CLIP_THRESHOLD = 0x7FFFFF;
-                if (sampleValue >= CLIP_THRESHOLD || sampleValue <= -CLIP_THRESHOLD) {
-                    m_clipDetected.store(true, std::memory_order_relaxed);
-                    break;
-                }
-            }
             
             // Write to ring buffer (lock-free, non-blocking)
             if (m_ringBuffer) {
@@ -326,9 +306,14 @@ void MultichannelRecorder::processAudioBuffer(const uint8_t* buffer, size_t buff
                 float sampleFloat = static_cast<float>(sample);
                 sampleFloat *= m_gainLinear;
                 
-                // Clamp to 24-bit range to prevent overflow
+                // Check for clipping BEFORE clamping (detect if gain caused clipping)
                 constexpr float MAX_24BIT = 8388607.0f;  // 2^23 - 1
                 constexpr float MIN_24BIT = -8388608.0f; // -2^23
+                if (sampleFloat >= MAX_24BIT || sampleFloat <= MIN_24BIT) {
+                    m_clipDetected.store(true, std::memory_order_relaxed);
+                }
+                
+                // Clamp to 24-bit range to prevent overflow
                 sampleFloat = std::max(MIN_24BIT, std::min(MAX_24BIT, sampleFloat));
                 
                 sample = static_cast<int32_t>(sampleFloat);

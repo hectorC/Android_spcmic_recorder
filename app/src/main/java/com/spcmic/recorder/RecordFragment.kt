@@ -716,17 +716,6 @@ class RecordFragment : Fragment() {
         val tvSampleRateInfo = sheetView.findViewById<android.widget.TextView>(R.id.tvSampleRateInfoSheet)
         tvSampleRateInfo?.text = "• Sample Rate: ${formatSampleRate(viewModel.selectedSampleRate.value)}"
         
-        // Add reset clip button
-        val btnResetClip = sheetView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnResetClipSheet)
-        btnResetClip?.setOnClickListener {
-            if (::audioRecorder.isInitialized) {
-                audioRecorder.resetClipIndicator()
-            } else {
-                viewModel.clearClipping()
-            }
-            bottomSheet.dismiss()
-        }
-        
         bottomSheet.setContentView(sheetView)
         bottomSheet.show()
     }
