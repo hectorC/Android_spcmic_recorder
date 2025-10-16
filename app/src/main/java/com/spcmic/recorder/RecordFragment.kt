@@ -272,11 +272,16 @@ class RecordFragment : Fragment() {
     }
 
     private fun updateLevelMeter(level: Float) {
-        // level is 0.0 to 1.0, convert to percentage
-        val percent = (level * 100).toInt().coerceIn(0, 100)
+        // level is 0.0 to 1.0, convert to dBFS
+        // dBFS = 20 * log10(level), with 0.0 mapped to -∞ dB and 1.0 mapped to 0 dB
+        val dbfs = if (level > 0.0001f) {
+            20.0f * kotlin.math.log10(level)
+        } else {
+            -60.0f // Floor at -60 dBFS for display purposes
+        }
         
-        // Update percentage text
-        binding.tvLevelPercent.text = "$percent%"
+        // Update text to show dBFS
+        binding.tvLevelPercent.text = String.format("%.1f dBFS", dbfs)
         
         // Update bar width (level grows from left)
         val barContainer = binding.levelMeterBar.parent as? android.widget.FrameLayout

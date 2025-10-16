@@ -333,7 +333,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="INPUT GAIN"
+                        android:text="OUTPUT GAIN"
                         android:textAppearance="@style/TextAppearance.Material3.LabelMedium"
                         android:textColor="@color/brand_on_surface_variant"
                         android:textAllCaps="true"
