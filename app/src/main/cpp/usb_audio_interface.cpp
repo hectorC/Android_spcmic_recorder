@@ -18,6 +18,7 @@
 
 #define LOG_TAG "USBAudioInterface"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define LOG_FATAL_IF(cond, ...) \
     do { \
@@ -1664,7 +1665,7 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
                 if (!blocking && saved_errno == EAGAIN) {
                     if (reap_loop == 0) {
                         if (++m_eagainCount <= 20 || m_eagainCount % 1000 == 0) {
-                            LOGI("No URB ready (EAGAIN, count=%d), totalSub=%d", m_eagainCount, m_totalSubmitted);
+                            LOGD("No URB ready (EAGAIN, count=%d), totalSub=%d", m_eagainCount, m_totalSubmitted);
                         }
                     }
                     break;
@@ -1713,7 +1714,7 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
             auto waited = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now() - waitStart);
             if (waited.count() > 0 && (m_reapCount <= 20 || m_reapCount % 1000 == 0)) {
-                LOGI("Blocking wait for URB completed in %lld us", static_cast<long long>(waited.count()));
+                LOGD("Blocking wait for URB completed in %lld us", static_cast<long long>(waited.count()));
             }
             reapCompletions(false);
         }
