@@ -76,11 +76,14 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun showPlaybackFragment() {
+        var justCreated = false
         if (playbackFragment == null) {
             playbackFragment = PlaybackFragment()
             supportFragmentManager.beginTransaction()
                 .add(R.id.fragmentContainer, playbackFragment!!, "playback")
                 .commit()
+            supportFragmentManager.executePendingTransactions()
+            justCreated = true
         }
         
         // Show playback, hide record
@@ -88,6 +91,16 @@ class MainActivity : AppCompatActivity() {
             playbackFragment?.let { show(it) }
             recordFragment?.let { hide(it) }
             commit()
+        }
+
+        supportFragmentManager.executePendingTransactions()
+
+        if (playbackFragment != null) {
+            if (justCreated) {
+                playbackFragment?.refreshOnDisplay()
+            } else {
+                playbackFragment?.refreshStorageAndScanFromHost()
+            }
         }
     }
     

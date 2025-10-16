@@ -1496,24 +1496,24 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
     // First, submit initial m_urbs if we haven't submitted all of them yet
     // This ensures we prime the queue before trying to reap
     if (m_totalSubmitted < NUM_URBS) {
-        
         // Prime the queue by submitting all m_urbs initially
         m_attemptCount++;
-        
+
         if (m_attemptCount <= 20 || m_attemptCount % 100 == 0) {
-            LOGI("Attempting to submit URB[%d] (attempt=%d, totalSub=%d/%d)", 
+            LOGI("Attempting to submit URB[%d] (attempt=%d, totalSub=%d/%d)",
                  m_nextSubmitIndex, m_attemptCount, m_totalSubmitted, NUM_URBS);
         }
-        
+
         int result = ioctl(m_deviceFd, USBDEVFS_SUBMITURB, m_urbs[m_nextSubmitIndex]);
         if (result >= 0) {
             m_totalSubmitted++;
             if (m_totalSubmitted <= NUM_URBS) {
-                LOGI("Submitted initial URB[%d] (%d/%d, %zu packets)", m_nextSubmitIndex, m_totalSubmitted, NUM_URBS, m_packetsPerUrb);
+                LOGI("Submitted initial URB[%d] (%d/%d, %zu packets)",
+                     m_nextSubmitIndex, m_totalSubmitted, NUM_URBS, m_packetsPerUrb);
             }
-            
+
             m_nextSubmitIndex = (m_nextSubmitIndex + 1) % NUM_URBS;
-            
+
             // If we haven't submitted all m_urbs yet, return and submit more on next call
             if (m_totalSubmitted < NUM_URBS) {
                 return 0;
@@ -1521,54 +1521,23 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
         } else {
             m_submitErrorCount++;
             if (m_submitErrorCount <= 20 || m_submitErrorCount % 100 == 0) {
-                LOGE("Failed to submit URB[%d] (attempt %d): %s (errno %d)", 
+                LOGE("Failed to submit URB[%d] (attempt %d): %s (errno %d)",
                      m_nextSubmitIndex, m_submitErrorCount, strerror(errno), errno);
             }
             return 0;  // Return and try again on next call
         }
     }
-    
-    // CRITICAL FIX: Reap ALL available URBs in a loop, not just one!
-    // The device may complete URBs faster than our polling rate
-    // Kernel docs: "keep at least one URB queued for smooth ISO streaming"
+
     int urbs_reaped_this_call = 0;
     size_t total_bytes_accumulated = 0;
     const int MAX_REAPS_PER_CALL = 32; // Safety limit
-    
-    for (int reap_loop = 0; reap_loop < MAX_REAPS_PER_CALL; reap_loop++) {
-        struct usbdevfs_urb *completed_urb = nullptr;
-        int reap_result = ioctl(m_deviceFd, USBDEVFS_REAPURBNDELAY, &completed_urb);
-        int saved_errno = errno;
-        
-        m_reapAttemptCount++;
-        
-        if (reap_result < 0 && saved_errno == EAGAIN) {
-            // No more URBs ready
-            if (reap_loop == 0) {
-                // Only count as EAGAIN if we didn't reap anything
-                if (++m_eagainCount <= 20 || m_eagainCount % 1000 == 0) {
-                    LOGI("No URB ready (EAGAIN, count=%d), totalSub=%d", m_eagainCount, m_totalSubmitted);
-                }
-            }
-            break; // Exit reap loop
-        }
-        
-        if (reap_result < 0 && saved_errno != EAGAIN) {
-            if (++m_reapErrorCount <= 20) {
-                LOGE("URB reap error: result=%d, errno=%d (%s)", reap_result, saved_errno, strerror(saved_errno));
-            }
-            break;
-        }
-        
-        if (reap_result < 0 || !completed_urb) {
-            break; // Exit reap loop
-        }
-        
-        // Successfully reaped a URB - process it
-        int urb_index = (int)(intptr_t)completed_urb->usercontext;
+    bool resetTriggered = false;
+
+    auto handleCompletedUrb = [&](struct usbdevfs_urb* completed_urb, int loopIndex) {
+        int urb_index = static_cast<int>(reinterpret_cast<intptr_t>(completed_urb->usercontext));
         urbs_reaped_this_call++;
         m_reapCount++;
-        
+
         // Track URB address for stuck detection
         if (completed_urb == m_lastReapedUrbAddress) {
             m_consecutiveSameUrbCount++;
@@ -1581,31 +1550,32 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
             m_consecutiveSameUrbCount = 1;
             m_lastReapedUrbAddress = completed_urb;
         }
-        
+
         // Check for stuck URB pattern periodically
         if (m_reapAttemptCount % CHECK_INTERVAL == 0 && m_reapAttemptCount > 0) {
             if (m_consecutiveSameUrbCount >= (CHECK_INTERVAL * 0.8) && m_reapAttemptCount > 100) {
                 LOGE("URB STUCK PATTERN DETECTED! Same URB @ %p reaped %d consecutive times - cancelling all URBs",
                      m_lastReapedUrbAddress, m_consecutiveSameUrbCount);
-                
+
                 // Cancel all URBs to break the stuck pattern
                 for (int i = 0; i < NUM_URBS; i++) {
                     if (m_urbs[i]) {
                         ioctl(m_deviceFd, USBDEVFS_DISCARDURB, m_urbs[i]);
                     }
                 }
-                
+
                 // Reset URB state and re-initialize
                 releaseUrbResources();
                 resetStreamingState();
-                
+                resetTriggered = true;
+
                 LOGI("All URBs cancelled - will reinitialize on next readAudioData() call");
-                return total_bytes_accumulated;
+                return;
             }
-            
+
             m_recentReapCheckpoint = m_reapCount;
         }
-        
+
         // Collect data from all packets in this URB and check for errors
         size_t total_actual = 0;
         int error_count = 0;
@@ -1613,16 +1583,14 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
             total_actual += completed_urb->iso_frame_desc[pkt].actual_length;
             if (completed_urb->iso_frame_desc[pkt].status != 0) {
                 error_count++;
-                // Log first few errors to understand what's happening
                 if (m_reapCount <= 50 || (m_reapCount % 1000 == 0 && error_count <= 2)) {
-                LOGE("URB[%d] packet[%zu] error: status=%d, actual=%u", 
-                    urb_index, pkt, completed_urb->iso_frame_desc[pkt].status, 
-                    completed_urb->iso_frame_desc[pkt].actual_length);
+                    LOGE("URB[%d] packet[%zu] error: status=%d, actual=%u",
+                         urb_index, pkt, completed_urb->iso_frame_desc[pkt].status,
+                         completed_urb->iso_frame_desc[pkt].actual_length);
                 }
             }
         }
-        
-        // Copy data to output buffer if we have room and data exists
+
         if (total_actual > 0 && total_bytes_accumulated < bufferSize) {
             uint8_t* urbData = static_cast<uint8_t*>(completed_urb->buffer);
             LOG_FATAL_IF(urbData == nullptr, "URB[%d] buffer is null", urb_index);
@@ -1637,8 +1605,10 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
                                  urb_index, packetOffset, m_urbBufferSize, pkt);
 
                     if (packetOffset + packetLength > m_urbBufferSize) {
-                        LOGE("Packet length %u exceeds URB buffer bounds (offset=%zu, size=%zu)", packetLength, packetOffset, m_urbBufferSize);
-                        packetLength = std::min<unsigned int>(packetLength, static_cast<unsigned int>(m_urbBufferSize - packetOffset));
+                        LOGE("Packet length %u exceeds URB buffer bounds (offset=%zu, size=%zu)",
+                             packetLength, packetOffset, m_urbBufferSize);
+                        packetLength = std::min<unsigned int>(packetLength,
+                                                              static_cast<unsigned int>(m_urbBufferSize - packetOffset));
                     }
 
                     const size_t remainingDest = bufferSize - total_bytes_accumulated;
@@ -1655,44 +1625,109 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
                 }
                 packetOffset += m_isoPacketSize;
             }
-            
+
             if (m_reapCount <= 20 || m_reapCount % 100 == 0) {
                 size_t frameBytes = static_cast<size_t>(m_channelCount) * static_cast<size_t>(m_bytesPerSample);
                 size_t samplesPerChannel = frameBytes > 0 ? total_actual / frameBytes : 0;
-                LOGI("ISO URB[%d] reaped (reap#%d, loop#%d): %zu bytes (%zu samples/ch), accumulated=%zu", 
-                     urb_index, m_reapCount, reap_loop, total_actual, samplesPerChannel, total_bytes_accumulated);
+                LOGI("ISO URB[%d] reaped (reap#%d, loop#%d): %zu bytes (%zu samples/ch), accumulated=%zu",
+                     urb_index, m_reapCount, loopIndex, total_actual, samplesPerChannel, total_bytes_accumulated);
             }
         }
-        
-        // Re-submit this URB immediately for continuous streaming (kernel docs: "keep at least one URB queued")
+
         for (size_t pkt = 0; pkt < m_packetsPerUrb; ++pkt) {
             completed_urb->iso_frame_desc[pkt].actual_length = 0;
             completed_urb->iso_frame_desc[pkt].status = 0;
         }
         completed_urb->buffer_length = m_urbBufferSize;
         completed_urb->number_of_packets = static_cast<unsigned>(m_packetsPerUrb);
-        
+
         int submit_result = ioctl(m_deviceFd, USBDEVFS_SUBMITURB, completed_urb);
         if (submit_result < 0) {
             LOGE("Failed to re-submit URB[%d]: %s (errno %d)", urb_index, strerror(errno), errno);
         } else if (m_reapCount <= 20) {
             LOGI("Re-submitted URB[%d] successfully", urb_index);
         }
+    };
 
-        if (total_bytes_accumulated >= bufferSize) {
-            break;
+    auto reapCompletions = [&](bool blocking) {
+        bool reapedAny = false;
+        int loops = blocking ? 1 : MAX_REAPS_PER_CALL;
+        for (int reap_loop = 0; reap_loop < loops; ++reap_loop) {
+            struct usbdevfs_urb* completed_urb = nullptr;
+            int command = blocking ? USBDEVFS_REAPURB : USBDEVFS_REAPURBNDELAY;
+            int reap_result = ioctl(m_deviceFd, command, &completed_urb);
+            int saved_errno = errno;
+
+            m_reapAttemptCount++;
+
+            if (reap_result < 0) {
+                if (!blocking && saved_errno == EAGAIN) {
+                    if (reap_loop == 0) {
+                        if (++m_eagainCount <= 20 || m_eagainCount % 1000 == 0) {
+                            LOGI("No URB ready (EAGAIN, count=%d), totalSub=%d", m_eagainCount, m_totalSubmitted);
+                        }
+                    }
+                    break;
+                }
+
+                if (saved_errno == EINTR) {
+                    continue;
+                }
+
+                if (++m_reapErrorCount <= 20) {
+                    LOGE("URB reap error (cmd=%s, result=%d, errno=%d: %s)",
+                         blocking ? "REAPURB" : "REAPURBNDELAY",
+                         reap_result, saved_errno, strerror(saved_errno));
+                }
+                break;
+            }
+
+            if (!completed_urb) {
+                break;
+            }
+
+            reapedAny = true;
+            handleCompletedUrb(completed_urb, blocking ? -1 : reap_loop);
+
+            if (resetTriggered) {
+                break;
+            }
+
+            if (!blocking && total_bytes_accumulated >= bufferSize) {
+                break;
+            }
         }
-        
-        // Continue loop to reap more URBs if available
+        return reapedAny;
+    };
+
+    reapCompletions(false);
+
+    if (resetTriggered) {
+        return total_bytes_accumulated;
     }
-    
-    // Log statistics periodically
+
+    if (total_bytes_accumulated == 0 && m_isStreaming) {
+        auto waitStart = std::chrono::steady_clock::now();
+        bool reapedAfterWait = reapCompletions(true);
+        if (reapedAfterWait) {
+            auto waited = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - waitStart);
+            if (waited.count() > 0 && (m_reapCount <= 20 || m_reapCount % 1000 == 0)) {
+                LOGI("Blocking wait for URB completed in %lld us", static_cast<long long>(waited.count()));
+            }
+            reapCompletions(false);
+        }
+    }
+
+    if (resetTriggered) {
+        return total_bytes_accumulated;
+    }
+
     if (urbs_reaped_this_call > 1 && (m_reapCount <= 50 || m_reapCount % 100 == 0)) {
-        LOGI("Reaped %d URBs in single call (reap#%d), total bytes=%zu", 
+        LOGI("Reaped %d URBs in single call (reap#%d), total bytes=%zu",
              urbs_reaped_this_call, m_reapCount, total_bytes_accumulated);
     }
-    
-    // Return accumulated data from all reaped URBs
+
     return total_bytes_accumulated;
 }
 

@@ -55,7 +55,7 @@ class PlaybackFragment : Fragment() {
         }
         viewModel.setCacheDirectory(cacheDir.absolutePath)
 
-        initializeStorageLocation()
+        refreshStorageAndScan()
         setupRecyclerView()
         setupPlayerControls()
         observeViewModel()
@@ -289,7 +289,11 @@ class PlaybackFragment : Fragment() {
         binding.playerControls.btnLoop.alpha = if (looping) 1f else 0.8f
     }
 
-    private fun initializeStorageLocation() {
+    private fun refreshStorageAndScan() {
+        if (!isAdded || _binding == null) {
+            return
+        }
+
         val info = StorageLocationManager.getStorageInfo(requireContext())
         viewModel.updateStorageLocation(info)
         binding.tvPlaybackStoragePath.text = info.displayPath
@@ -299,6 +303,21 @@ class PlaybackFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         // Refresh in case the record tab updated the storage preference
-        initializeStorageLocation()
+        refreshStorageAndScan()
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (!hidden) {
+            refreshStorageAndScan()
+        }
+    }
+
+    fun refreshOnDisplay() {
+        refreshStorageAndScan()
+    }
+
+    fun refreshStorageAndScanFromHost() {
+        refreshStorageAndScan()
     }
 }

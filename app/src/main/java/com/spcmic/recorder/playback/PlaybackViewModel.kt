@@ -166,21 +166,21 @@ class PlaybackViewModel : ViewModel() {
 
         val files = directory.listFiles()
         Log.d(TAG, "scanFileDirectory: listFiles() returned ${files?.size ?: 0} files")
-        
-        val recordings = files?.asSequence()
+
+        val wavFiles = files
             ?.filter { file -> file.isFile && file.name.endsWith(".wav", ignoreCase = true) }
-            ?.also { wavFiles -> Log.d(TAG, "scanFileDirectory: Found ${wavFiles.count()} WAV files") }
-            ?.mapNotNull { file -> 
-                try {
-                    WavMetadataParser.createRecording(file)
-                } catch (e: Exception) {
-                    Log.e(TAG, "scanFileDirectory: Error parsing ${file.name}", e)
-                    null
-                }
-            }
-            ?.sortedByDescending { it.dateTime }
-            ?.toList()
             ?: emptyList()
+
+        Log.d(TAG, "scanFileDirectory: Found ${wavFiles.size} WAV files")
+
+        val recordings = wavFiles.mapNotNull { file ->
+            try {
+                WavMetadataParser.createRecording(file)
+            } catch (e: Exception) {
+                Log.e(TAG, "scanFileDirectory: Error parsing ${file.name}", e)
+                null
+            }
+        }.sortedByDescending { it.dateTime }
             
         Log.d(TAG, "scanFileDirectory: Returning ${recordings.size} recordings")
         return recordings
