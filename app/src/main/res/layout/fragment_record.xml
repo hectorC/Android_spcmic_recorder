@@ -220,31 +220,156 @@
                     android:padding="@dimen/status_card_padding"
                     android:gravity="center">
 
-                    <ImageView
-                        android:id="@+id/ivClipIcon"
-                        android:layout_width="@dimen/status_card_icon_size"
-                        android:layout_height="@dimen/status_card_icon_size"
-                        android:layout_marginBottom="6dp"
-                        android:src="@drawable/ic_check_circle"
-                        android:tint="@color/clip_indicator_idle"
-                        android:contentDescription="@string/no_clipping_detected" />
-
-                    <TextView
-                        android:id="@+id/tvClipIndicator"
+                    <!-- Level Meter Title Row -->
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="No Clip"
-                        android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
-                        android:textColor="@color/brand_on_surface_variant"
-                        android:textAlignment="center"
-                        android:textSize="11sp"
-                        android:maxLines="1" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="6dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="LEVEL"
+                            android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
+                            android:textColor="@color/brand_on_surface_variant"
+                            android:textAllCaps="true"
+                            android:textSize="10sp"
+                            android:gravity="start" />
+
+                        <!-- Clip warning icon (shown when clipping) -->
+                        <ImageView
+                            android:id="@+id/ivClipWarning"
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:src="@drawable/ic_warning"
+                            android:tint="@color/clip_indicator_alert"
+                            android:visibility="gone"
+                            android:layout_marginEnd="4dp"
+                            android:contentDescription="@string/clipping_detected" />
+
+                        <!-- Level percentage text -->
+                        <TextView
+                            android:id="@+id/tvLevelPercent"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0%"
+                            android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
+                            android:textColor="@color/brand_on_surface"
+                            android:textSize="11sp"
+                            android:textStyle="bold"
+                            android:minWidth="32dp"
+                            android:gravity="end" />
+
+                    </LinearLayout>
+
+                    <!-- Level Meter Bar (Horizontal) -->
+                    <FrameLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="12dp">
+
+                        <!-- Background bar -->
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:background="@android:color/darker_gray"
+                            android:alpha="0.2" />
+
+                        <!-- Level indicator (grows from left) -->
+                        <View
+                            android:id="@+id/levelMeterBar"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_gravity="start"
+                            android:background="@color/brand_primary" />
+
+                    </FrameLayout>
 
                 </LinearLayout>
 
             </com.google.android.material.card.MaterialCardView>
 
         </LinearLayout>
+
+        <!-- SECTION 3.5: GAIN CONTROL (Full Width) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/gainControlCard"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            app:layout_constraintTop_toBottomOf="@id/statusRow"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:cardBackgroundColor="@color/card_surface"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp"
+            app:strokeColor="@color/card_stroke"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_microphone"
+                        android:tint="@color/brand_primary"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="Gain Control" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="INPUT GAIN"
+                        android:textAppearance="@style/TextAppearance.Material3.LabelMedium"
+                        android:textColor="@color/brand_on_surface_variant"
+                        android:textAllCaps="true"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:id="@+id/tvGainValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="+0 dB"
+                        android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
+                        android:textColor="@color/brand_primary"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"
+                        android:minWidth="60dp"
+                        android:gravity="end" />
+
+                </LinearLayout>
+
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/sliderGain"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:valueFrom="0"
+                    android:valueTo="64"
+                    android:value="0"
+                    android:stepSize="1"
+                    android:layout_marginTop="4dp"
+                    app:thumbColor="@color/brand_primary"
+                    app:trackColorActive="@color/brand_primary"
+                    app:trackColorInactive="@color/brand_secondary_container"
+                    app:labelBehavior="gone" />
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
 
         <!-- SECTION 4: CONTROLS (Spinner + Buttons) -->
         <LinearLayout
@@ -255,7 +380,7 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:baselineAligned="false"
-            app:layout_constraintTop_toBottomOf="@id/statusRow"
+            app:layout_constraintTop_toBottomOf="@id/gainControlCard"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
 

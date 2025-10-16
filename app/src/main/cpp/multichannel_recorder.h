@@ -16,13 +16,17 @@ public:
     MultichannelRecorder(USBAudioInterface* audioInterface);
     ~MultichannelRecorder();
     
-    bool startRecording(const std::string& outputPath);
-    bool startRecordingWithFd(int fd, const std::string& displayPath);
+    bool startRecording(const std::string& outputPath, float gainDb = 0.0f);
+    bool startRecordingWithFd(int fd, const std::string& displayPath, float gainDb = 0.0f);
     bool stopRecording();
     bool isRecording() const { return m_isRecording.load(); }
     
     bool hasClipped() const { return m_clipDetected.load(); }
     void resetClipIndicator();
+    
+    // Gain and level metering
+    void setGain(float gainDb);
+    float getPeakLevel() const { return m_peakLevel.load(); }
     
     // Get recording statistics
     size_t getTotalSamplesRecorded() const { return m_totalSamples; }
@@ -48,6 +52,10 @@ private:
     std::chrono::high_resolution_clock::time_point m_startTime;
     int m_sampleRate;
     std::atomic<bool> m_clipDetected;
+    
+    // Gain and level metering
+    std::atomic<float> m_peakLevel;
+    float m_gainLinear;
     
     // Recording parameters
     static const size_t DEFAULT_BUFFER_SIZE = 8192;  // Bytes

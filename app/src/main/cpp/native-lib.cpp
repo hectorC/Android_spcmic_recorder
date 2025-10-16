@@ -72,7 +72,8 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_spcmic_recorder_USBAudioRecorder_startRecordingNative(
         JNIEnv* env,
         jobject thiz,
-        jstring outputPath) {
+        jstring outputPath,
+        jfloat gainDb) {
     std::lock_guard<std::mutex> lock(g_nativeMutex);
     
     if (!g_usbAudioInterface) {
@@ -80,10 +81,9 @@ Java_com_spcmic_recorder_USBAudioRecorder_startRecordingNative(
         return JNI_FALSE;
     }
 
-    // If a recorder instance exists, it must be a stale one from a previous, stopped session.
-    // It is now safe to delete it before creating a new one.
+    // If a recorder instance exists, delete it before creating a new one
     if (g_recorder) {
-        LOGW("JNI", "Stale recorder instance found. Deleting it before starting new recording.");
+        LOGW("Stale recorder instance found. Deleting it before starting new recording.");
         delete g_recorder;
         g_recorder = nullptr;
     }
@@ -95,9 +95,9 @@ Java_com_spcmic_recorder_USBAudioRecorder_startRecordingNative(
         std::string path(pathStr);
         env->ReleaseStringUTFChars(outputPath, pathStr);
         
-        LOGI("Starting native recording to: %s", path.c_str());
+        LOGI("Starting native recording to: %s with gain %.1f dB", path.c_str(), gainDb);
         
-        bool result = g_recorder->startRecording(path);
+        bool result = g_recorder->startRecording(path, static_cast<float>(gainDb));
         if (result) {
             LOGI("Native recording started successfully");
         } else {
@@ -122,7 +122,8 @@ Java_com_spcmic_recorder_USBAudioRecorder_startRecordingNativeWithFd(
         JNIEnv* env,
         jobject thiz,
         jint fd,
-        jstring locationHint) {
+        jstring locationHint,
+        jfloat gainDb) {
     std::lock_guard<std::mutex> lock(g_nativeMutex);
 
     if (!g_usbAudioInterface) {
@@ -130,9 +131,9 @@ Java_com_spcmic_recorder_USBAudioRecorder_startRecordingNativeWithFd(
         return JNI_FALSE;
     }
 
-    // If a recorder instance exists, it must be a stale one from a previous, stopped session.
+    // If a recorder instance exists, delete it before creating a new one
     if (g_recorder) {
-        LOGW("JNI", "Stale recorder instance found. Deleting it before starting new recording.");
+        LOGW("Stale recorder instance found. Deleting it before starting new recording.");
         delete g_recorder;
         g_recorder = nullptr;
     }
@@ -153,8 +154,8 @@ Java_com_spcmic_recorder_USBAudioRecorder_startRecordingNativeWithFd(
             destinationLabel = "parcel_fd";
         }
 
-        LOGI("Starting native recording via fd=%d (%s)", fd, destinationLabel.c_str());
-        bool result = g_recorder->startRecordingWithFd(static_cast<int>(fd), destinationLabel);
+        LOGI("Starting native recording via fd=%d (%s) with gain %.1f dB", fd, destinationLabel.c_str(), gainDb);
+        bool result = g_recorder->startRecordingWithFd(static_cast<int>(fd), destinationLabel, static_cast<float>(gainDb));
         if (result) {
             LOGI("Native recording started successfully via fd=%d", fd);
         } else {
@@ -195,6 +196,32 @@ Java_com_spcmic_recorder_USBAudioRecorder_resetClipIndicatorNative(
     if (g_recorder) {
         g_recorder->resetClipIndicator();
     }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_setGainNative(
+        JNIEnv* env,
+        jobject thiz,
+        jfloat gainDb) {
+    std::lock_guard<std::mutex> lock(g_nativeMutex);
+
+    if (g_recorder) {
+        g_recorder->setGain(static_cast<float>(gainDb));
+    } else {
+        LOGW("setGainNative called but g_recorder is null");
+    }
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_getPeakLevelNative(
+        JNIEnv* env,
+        jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_nativeMutex);
+
+    if (g_recorder) {
+        return static_cast<jfloat>(g_recorder->getPeakLevel());
+    }
+    return 0.0f;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

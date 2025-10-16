@@ -63,8 +63,8 @@ class USBAudioRecorder(
     // Native library interface
     external fun stringFromJNI(): String
     external fun initializeNativeAudio(deviceFd: Int, sampleRate: Int, channelCount: Int): Boolean
-    external fun startRecordingNative(outputPath: String): Boolean
-    external fun startRecordingNativeWithFd(fd: Int, absolutePath: String): Boolean
+    external fun startRecordingNative(outputPath: String, gainDb: Float): Boolean
+    external fun startRecordingNativeWithFd(fd: Int, absolutePath: String, gainDb: Float): Boolean
     external fun stopRecordingNative(): Boolean
     external fun releaseNativeAudio()
     external fun getSupportedSampleRatesNative(): IntArray?
@@ -75,6 +75,8 @@ class USBAudioRecorder(
     external fun setInterfaceNative(interfaceNum: Int, altSetting: Int): Boolean
     external fun hasClippedNative(): Boolean
     external fun resetClipIndicatorNative()
+    external fun setGainNative(gainDb: Float)
+    external fun getPeakLevelNative(): Float
     
     companion object {
         private const val DEFAULT_SAMPLE_RATE = 48000
@@ -244,6 +246,10 @@ class USBAudioRecorder(
             return false
         }
         
+        // Get current gain setting to pass to recorder
+        val currentGain = viewModel.gainDb.value ?: 0f
+        android.util.Log.i("USBAudioRecorder", "Starting recording with gain: $currentGain dB")
+        
         var pendingTarget: StorageLocationManager.RecordingTarget? = null
         try {
             val dateFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
@@ -260,12 +266,12 @@ class USBAudioRecorder(
             val success = when {
                 target.outputFile != null -> {
                     android.util.Log.i("USBAudioRecorder", "Starting recording to: ${target.outputFile.absolutePath}")
-                    startRecordingNative(target.outputFile.absolutePath)
+                    startRecordingNative(target.outputFile.absolutePath, currentGain)
                 }
                 target.parcelFileDescriptor != null -> {
                     activeRecordingPfd = target.parcelFileDescriptor
                     android.util.Log.i("USBAudioRecorder", "Starting recording via SAF to: ${target.displayLocation}")
-                    startRecordingNativeWithFd(activeRecordingPfd!!.fd, target.displayLocation)
+                    startRecordingNativeWithFd(activeRecordingPfd!!.fd, target.displayLocation, currentGain)
                 }
                 else -> {
                     android.util.Log.e("USBAudioRecorder", "Recording target missing backing file or descriptor")
@@ -390,6 +396,23 @@ class USBAudioRecorder(
             resetClipIndicatorNative()
         }
         viewModel.clearClipping()
+    }
+
+    fun setGain(gainDb: Float) {
+        if (isNativeInitialized) {
+            setGainNative(gainDb.coerceIn(0f, 64f))
+            android.util.Log.i("USBAudioRecorder", "Gain set to $gainDb dB")
+        } else {
+            android.util.Log.w("USBAudioRecorder", "Cannot set gain - native audio not initialized")
+        }
+    }
+
+    fun getPeakLevel(): Float {
+        return if (isNativeInitialized) {
+            getPeakLevelNative()
+        } else {
+            0f
+        }
     }
 
     fun onSampleRateSelected(rate: Int): Boolean {

@@ -28,7 +28,12 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import com.spcmic.recorder.databinding.FragmentRecordBinding
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 class RecordFragment : Fragment() {
@@ -46,6 +51,7 @@ class RecordFragment : Fragment() {
     private var recordingPulseAnimation: android.view.animation.Animation? = null
     private var clipWarningAnimation: android.view.animation.Animation? = null
     private var currentStorageInfo: StorageLocationManager.StorageInfo? = null
+    private var levelMeterJob: Job? = null
     
     private lateinit var requestPermissionLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var storagePickerLauncher: ActivityResultLauncher<Uri?>
@@ -232,11 +238,64 @@ class RecordFragment : Fragment() {
 
             updateClipIndicator(viewModel.isClipping.value ?: false)
             
+            // Gain control slider
+            sliderGain.addOnChangeListener { _, value, fromUser ->
+                if (fromUser) {
+                    viewModel.setGainDb(value)
+                    updateGainDisplay(value)
+                    
+                    // Apply gain to native recorder if initialized
+                    if (::audioRecorder.isInitialized) {
+                        audioRecorder.setGain(value)
+                    }
+                }
+            }
+            
+            // Initialize gain display
+            val initialGain = viewModel.gainDb.value ?: 0f
+            sliderGain.value = initialGain
+            updateGainDisplay(initialGain)
+            
             // Settings button opens bottom sheet
             btnSettings.setOnClickListener {
                 showSettingsBottomSheet()
             }
         }
+    }
+
+    private fun updateGainDisplay(gainDb: Float) {
+        binding.tvGainValue.text = if (gainDb == 0f) {
+            "0 dB"
+        } else {
+            String.format(Locale.getDefault(), "+%.0f dB", gainDb)
+        }
+    }
+
+    private fun updateLevelMeter(level: Float) {
+        // level is 0.0 to 1.0, convert to percentage
+        val percent = (level * 100).toInt().coerceIn(0, 100)
+        
+        // Update percentage text
+        binding.tvLevelPercent.text = "$percent%"
+        
+        // Update bar width (level grows from left)
+        val barContainer = binding.levelMeterBar.parent as? android.widget.FrameLayout
+        barContainer?.let { container ->
+            val params = binding.levelMeterBar.layoutParams
+            params.width = (container.width * level).toInt()
+            binding.levelMeterBar.layoutParams = params
+        }
+        
+        // Change color based on level (green -> yellow -> red)
+        // If clipping, always show red regardless of current level
+        val isClipping = viewModel.isClipping.value == true
+        val color = when {
+            isClipping -> ContextCompat.getColor(requireContext(), R.color.clip_indicator_alert) // Red when clipping
+            level < 0.7f -> ContextCompat.getColor(requireContext(), R.color.brand_primary) // Green
+            level < 0.9f -> ContextCompat.getColor(requireContext(), android.R.color.holo_orange_light) // Yellow
+            else -> ContextCompat.getColor(requireContext(), R.color.clip_indicator_alert) // Red at high levels
+        }
+        binding.levelMeterBar.setBackgroundColor(color)
     }
 
     private fun initializeStorageLocation() {
@@ -292,11 +351,24 @@ class RecordFragment : Fragment() {
         viewModel.isClipping.observe(viewLifecycleOwner) { isClipping ->
             updateClipIndicator(isClipping)
             
-            // Start pulsing animation for clip warning
+            // Show/hide clip warning icon with animation
             if (isClipping) {
+                binding.ivClipWarning.visibility = View.VISIBLE
                 startClipWarningAnimation()
             } else {
+                binding.ivClipWarning.visibility = View.GONE
                 stopClipWarningAnimation()
+            }
+        }
+
+        viewModel.peakLevel.observe(viewLifecycleOwner) { level ->
+            updateLevelMeter(level)
+        }
+
+        viewModel.gainDb.observe(viewLifecycleOwner) { gainDb ->
+            if (binding.sliderGain.value != gainDb) {
+                binding.sliderGain.value = gainDb
+                updateGainDisplay(gainDb)
             }
         }
 
@@ -508,6 +580,9 @@ class RecordFragment : Fragment() {
             // Start foreground service for high-priority recording
             AudioRecordingService.startRecordingService(requireContext())
             Log.i("RecordFragment", "Started foreground service for high-priority recording")
+            
+            // Start level meter polling
+            startLevelMeterPolling()
         } else {
             Toast.makeText(requireContext(), "Failed to start recording", Toast.LENGTH_SHORT).show()
         }
@@ -521,6 +596,33 @@ class RecordFragment : Fragment() {
         // Stop foreground service
         AudioRecordingService.stopRecordingService(requireContext())
         Log.i("RecordFragment", "Stopped foreground service")
+        
+        // Stop level meter polling
+        stopLevelMeterPolling()
+    }
+
+    private fun startLevelMeterPolling() {
+        // Cancel any existing job
+        levelMeterJob?.cancel()
+        
+        // Start new polling job
+        levelMeterJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive && ::audioRecorder.isInitialized) {
+                try {
+                    val peakLevel = audioRecorder.getPeakLevel()
+                    viewModel.setPeakLevel(peakLevel)
+                } catch (e: Exception) {
+                    Log.e("RecordFragment", "Error polling peak level", e)
+                }
+                delay(100) // Poll every 100ms for smooth updates
+            }
+        }
+    }
+
+    private fun stopLevelMeterPolling() {
+        levelMeterJob?.cancel()
+        levelMeterJob = null
+        viewModel.setPeakLevel(0f) // Reset level meter to zero
     }
 
     private fun updateSampleRateSpinnerSelection() {
@@ -563,14 +665,9 @@ class RecordFragment : Fragment() {
     }
 
     private fun updateClipIndicator(isClipping: Boolean) {
-        val indicator = binding.tvClipIndicator
-        val icon = binding.ivClipIcon
-        val colorRes = if (isClipping) R.color.clip_indicator_alert else R.color.clip_indicator_idle
-        val iconRes = if (isClipping) R.drawable.ic_warning else R.drawable.ic_check_circle
-        
-        icon.setImageResource(iconRes)
-        icon.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(requireContext(), colorRes))
-        indicator.text = if (isClipping) "Clip!" else getString(R.string.no_clip_short)
+        // Clip warning is now integrated into the level meter
+        // Just show/hide the warning icon
+        binding.ivClipWarning.visibility = if (isClipping) View.VISIBLE else View.GONE
     }
 
     private fun showSettingsBottomSheet() {
@@ -687,18 +784,18 @@ class RecordFragment : Fragment() {
         if (clipWarningAnimation == null) {
             clipWarningAnimation = AnimationUtils.loadAnimation(requireContext(), R.anim.pulse_clip_warning)
         }
-        binding.ivClipIcon.startAnimation(clipWarningAnimation)
+        binding.ivClipWarning.startAnimation(clipWarningAnimation)
     }
     
     private fun stopClipWarningAnimation() {
-        binding.ivClipIcon.clearAnimation()
+        binding.ivClipWarning.clearAnimation()
     }
     
     override fun onDestroyView() {
         super.onDestroyView()
         // Only clean up view-related resources here
         // USB connection survives because fragment is just hidden, not destroyed
-        stopClipWarningAnimation()
+        stopLevelMeterPolling()
         recordingPulseAnimation = null
         clipWarningAnimation = null
         _binding = null

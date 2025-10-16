@@ -23,7 +23,9 @@ MultichannelRecorder::MultichannelRecorder(USBAudioInterface* audioInterface)
     , m_clipDetected(false)
     , m_bufferSize(DEFAULT_BUFFER_SIZE)
     , m_ringBuffer(nullptr)
-    , m_diskThreadRunning(false) {
+    , m_diskThreadRunning(false)
+    , m_peakLevel(0.0f)
+    , m_gainLinear(1.0f) {
     
     LOGI("MultichannelRecorder created for %d channels", CHANNEL_COUNT);
 }
@@ -62,7 +64,10 @@ MultichannelRecorder::~MultichannelRecorder() {
     LOGI("MultichannelRecorder destroyed");
 }
 
-bool MultichannelRecorder::startRecording(const std::string& outputPath) {
+bool MultichannelRecorder::startRecording(const std::string& outputPath, float gainDb) {
+    // Set gain before starting recording
+    setGain(gainDb);
+    
     return startRecordingInternal(
         outputPath,
         [this, &outputPath](WAVWriter* writer) {
@@ -71,7 +76,10 @@ bool MultichannelRecorder::startRecording(const std::string& outputPath) {
     );
 }
 
-bool MultichannelRecorder::startRecordingWithFd(int fd, const std::string& displayPath) {
+bool MultichannelRecorder::startRecordingWithFd(int fd, const std::string& displayPath, float gainDb) {
+    // Set gain before starting recording
+    setGain(gainDb);
+    
     return startRecordingInternal(
         displayPath,
         [this, fd](WAVWriter* writer) {
@@ -284,15 +292,68 @@ void MultichannelRecorder::diskWriteThreadFunction() {
 }
 
 void MultichannelRecorder::processAudioBuffer(const uint8_t* buffer, size_t bufferSize) {
-    // This function can be used for real-time audio processing
-    // such as filtering, gain adjustment, etc.
+    // This function processes audio in real-time:
+    // 1. Apply gain to all channels
+    // 2. Track peak level across all channels for metering
+    // 3. Modify buffer in-place before it goes to disk
     
-    // For now, we just pass the data through unchanged
-    // but this is where you could add:
-    // - Real-time filtering
-    // - Automatic gain control
-    // - Noise reduction
-    // - Format conversion
+    if (bufferSize == 0 || buffer == nullptr) {
+        return;
+    }
+    
+    // Process samples in-place (gain application + level detection)
+    const size_t frameSize = CHANNEL_COUNT * BYTES_PER_SAMPLE;
+    const size_t numFrames = bufferSize / frameSize;
+    
+    // Track peak level for this buffer
+    float bufferPeak = 0.0f;
+    
+    // Process each complete frame
+    uint8_t* mutableBuffer = const_cast<uint8_t*>(buffer);
+    for (size_t frame = 0; frame < numFrames; ++frame) {
+        const size_t frameOffset = frame * frameSize;
+        
+        // Process each channel in this frame
+        for (size_t ch = 0; ch < CHANNEL_COUNT; ++ch) {
+            const size_t sampleOffset = frameOffset + (ch * BYTES_PER_SAMPLE);
+            
+            // Extract 24-bit sample
+            int32_t sample = extract24BitSample(mutableBuffer + sampleOffset);
+            
+            // Apply gain (multiply by linear gain factor)
+            if (m_gainLinear != 1.0f) {
+                // Convert to float, apply gain, convert back to int32
+                float sampleFloat = static_cast<float>(sample);
+                sampleFloat *= m_gainLinear;
+                
+                // Clamp to 24-bit range to prevent overflow
+                constexpr float MAX_24BIT = 8388607.0f;  // 2^23 - 1
+                constexpr float MIN_24BIT = -8388608.0f; // -2^23
+                sampleFloat = std::max(MIN_24BIT, std::min(MAX_24BIT, sampleFloat));
+                
+                sample = static_cast<int32_t>(sampleFloat);
+                
+                // Write modified sample back to buffer (24-bit little-endian)
+                mutableBuffer[sampleOffset + 0] = static_cast<uint8_t>(sample & 0xFF);
+                mutableBuffer[sampleOffset + 1] = static_cast<uint8_t>((sample >> 8) & 0xFF);
+                mutableBuffer[sampleOffset + 2] = static_cast<uint8_t>((sample >> 16) & 0xFF);
+            }
+            
+            // Track peak level (after gain application)
+            float level = normalizeLevel(sample);
+            if (level > bufferPeak) {
+                bufferPeak = level;
+            }
+        }
+    }
+    
+    // Update peak level atomically (for UI polling)
+    // Use exponential decay: new_peak = max(current_sample_peak, old_peak * 0.95)
+    // This gives smooth meter falloff
+    float currentPeak = m_peakLevel.load(std::memory_order_relaxed);
+    float decayedPeak = currentPeak * 0.95f;
+    float newPeak = std::max(bufferPeak, decayedPeak);
+    m_peakLevel.store(newPeak, std::memory_order_relaxed);
 }
 
 int32_t MultichannelRecorder::extract24BitSample(const uint8_t* data) {
@@ -322,6 +383,15 @@ double MultichannelRecorder::getRecordingDuration() const {
 
 void MultichannelRecorder::resetClipIndicator() {
     m_clipDetected.store(false);
+}
+
+void MultichannelRecorder::setGain(float gainDb) {
+    // Convert dB to linear gain: linear = 10^(dB/20)
+    // Clamp gainDb to safe range [0, 64] dB
+    gainDb = std::max(0.0f, std::min(64.0f, gainDb));
+    m_gainLinear = std::pow(10.0f, gainDb / 20.0f);
+    
+    LOGI("Gain set to %.1f dB (linear: %.2f)", gainDb, m_gainLinear);
 }
 
 bool MultichannelRecorder::startRecordingInternal(

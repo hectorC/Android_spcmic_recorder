@@ -42,6 +42,12 @@ class MainViewModel : ViewModel() {
     private val _isClipping = MutableLiveData(false)
     val isClipping: LiveData<Boolean> = _isClipping
 
+    private val _peakLevel = MutableLiveData(0f)
+    val peakLevel: LiveData<Float> = _peakLevel
+
+    private val _gainDb = MutableLiveData(0f)
+    val gainDb: LiveData<Float> = _gainDb
+
     private val _recordingFileName = MutableLiveData<String?>(null)
     val recordingFileName: LiveData<String?> = _recordingFileName
 
@@ -53,7 +59,9 @@ class MainViewModel : ViewModel() {
     
     init {
         resetSampleRateState()
-    _isClipping.value = false
+        _isClipping.value = false
+        _peakLevel.value = 0f
+        _gainDb.value = 0f
     }
     
     fun setUSBDevice(device: UsbDevice?) {
@@ -124,6 +132,14 @@ class MainViewModel : ViewModel() {
 
     fun clearClipping() {
         _isClipping.value = false
+    }
+
+    fun setPeakLevel(level: Float) {
+        _peakLevel.value = level.coerceIn(0f, 1f)
+    }
+
+    fun setGainDb(gain: Float) {
+        _gainDb.value = gain.coerceIn(0f, 64f)
     }
 
     fun setRecordingFileName(name: String?) {
