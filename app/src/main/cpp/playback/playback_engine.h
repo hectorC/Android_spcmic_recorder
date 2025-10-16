@@ -194,6 +194,8 @@ private:
     std::atomic<bool> preRenderInProgress_;
     
     static constexpr int32_t BUFFER_FRAMES = 4096;  // ~85ms at 48kHz to improve stability
+
+    mutable std::mutex loadMutex_; // Serializes load/configure cycles across threads
 };
 
 } // namespace spcmic

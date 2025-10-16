@@ -10,6 +10,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -ffast-math -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -g")
 
+option(ENABLE_ADDRESS_SANITIZER "Build native code with AddressSanitizer" OFF)
+
+set(SANITIZER_DEFINITION "")
+
+if(ENABLE_ADDRESS_SANITIZER)
+    message(STATUS "AddressSanitizer enabled for native targets")
+    set(SANITIZE_FLAGS "-fsanitize=address -fno-omit-frame-pointer")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SANITIZE_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SANITIZE_FLAGS}")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+    set(SANITIZER_DEFINITION "ENABLE_ADDRESS_SANITIZER")
+endif()
+
 # Recording library source files (original)
 set(RECORDING_SOURCES
     src/main/cpp/native-lib.cpp
@@ -49,12 +63,20 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     OpenSLES
 )
 
+if(SANITIZER_DEFINITION)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE ${SANITIZER_DEFINITION})
+endif()
+
 # Link libraries for playback
 target_link_libraries(spcmic_playback
     ${log-lib}
     ${android-lib}
     OpenSLES
 )
+
+if(SANITIZER_DEFINITION)
+    target_compile_definitions(spcmic_playback PRIVATE ${SANITIZER_DEFINITION})
+endif()
 
 # Include directories
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE

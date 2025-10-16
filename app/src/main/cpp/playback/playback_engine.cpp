@@ -69,6 +69,7 @@ PlaybackEngine::~PlaybackEngine() {
 }
 
 bool PlaybackEngine::loadFile(const std::string& filePath) {
+    std::lock_guard<std::mutex> loadLock(loadMutex_);
     audioOutput_->stop();
 
     clearPreRenderedState();
@@ -145,6 +146,7 @@ bool PlaybackEngine::loadFile(const std::string& filePath) {
 }
 
 bool PlaybackEngine::loadFileFromDescriptor(int fd, const std::string& displayPath) {
+    std::lock_guard<std::mutex> loadLock(loadMutex_);
     audioOutput_->stop();
 
     clearPreRenderedState();
@@ -492,6 +494,7 @@ bool PlaybackEngine::loadImpulseResponse(int32_t sampleRate) {
     return true;
 }
 bool PlaybackEngine::preparePreRenderedFile() {
+    std::lock_guard<std::mutex> loadLock(loadMutex_);
     if (!impulseResponseLoaded_ || !matrixConvolver_.isReady()) {
         LOGE("Impulse response not loaded; cannot pre-render");
         return false;

@@ -3,6 +3,8 @@ plugins {
     id 'kotlin-android'
 }
 
+def enableAsan = project.hasProperty("enableAsan") && project.property("enableAsan") == "true"
+
 android {
     namespace 'com.spcmic.recorder'
     compileSdk 35
@@ -17,15 +19,20 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         
         ndk {
-            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
+            if (enableAsan) {
+                abiFilters 'arm64-v8a'
+            } else {
+                abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
+            }
         }
         
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -frtti -fexceptions"
-                arguments "-DANDROID_STL=c++_shared"
+                arguments "-DANDROID_STL=c++_shared", "-DENABLE_ADDRESS_SANITIZER=${enableAsan ? 'ON' : 'OFF'}"
             }
         }
+
     }
 
     signingConfigs {
@@ -85,6 +92,15 @@ android {
     }
     
     ndkVersion "26.1.10909125"
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = enableAsan
+            if (enableAsan) {
+                keepDebugSymbols += ["**/libasanwrap.so"]
+            }
+        }
+    }
 }
 
 dependencies {

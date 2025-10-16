@@ -7,6 +7,12 @@
 #define LOG_TAG "MultichannelRecorder"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOG_FATAL_IF(cond, ...) \
+    do { \
+        if (cond) { \
+            __android_log_assert(#cond, LOG_TAG, __VA_ARGS__); \
+        } \
+    } while (false)
 
 MultichannelRecorder::MultichannelRecorder(USBAudioInterface* audioInterface)
     : m_audioInterface(audioInterface)
@@ -23,9 +29,27 @@ MultichannelRecorder::MultichannelRecorder(USBAudioInterface* audioInterface)
 }
 
 MultichannelRecorder::~MultichannelRecorder() {
-    stopRecording();
+    // First, ensure recording is stopped and threads are signaled.
+    if (m_isRecording.load()) {
+        m_isRecording.store(false);
+    }
+    if (m_diskThreadRunning.load()) {
+        m_diskThreadRunning.store(false);
+        m_diskThreadCV.notify_one();
+    }
+
+    // Now, safely join the threads.
+    if (m_recordingThread.joinable()) {
+        m_recordingThread.join();
+    }
+    if (m_diskWriteThread.joinable()) {
+        m_diskWriteThread.join();
+    }
     
+    // Now it's safe to clean up other resources.
     if (m_wavWriter) {
+        // Closing the writer handles the final flush and header update
+        m_wavWriter->close();
         delete m_wavWriter;
         m_wavWriter = nullptr;
     }
@@ -58,47 +82,42 @@ bool MultichannelRecorder::startRecordingWithFd(int fd, const std::string& displ
 
 bool MultichannelRecorder::stopRecording() {
     if (!m_isRecording.load()) {
+        // If not recording, there's nothing to do.
+        // This prevents trying to stop a recorder that's already been stopped.
         return true;
     }
     
-    LOGI("Stopping recording");
+    LOGI("Stopping recording threads and flushing data...");
     
-    // Signal recording thread to stop
+    // 1. Signal recording thread to stop.
     m_isRecording.store(false);
     
-    // Wait for USB reading thread to finish
+    // 2. Wait for the USB reading thread to finish its current loop and exit.
     if (m_recordingThread.joinable()) {
         m_recordingThread.join();
     }
     
-    // Signal disk write thread to stop and wake it up
+    // 3. Signal the disk write thread that no more data is coming.
     m_diskThreadRunning.store(false);
-    m_diskThreadCV.notify_one();
+    m_diskThreadCV.notify_one(); // Wake it up in case it's waiting on the condition variable.
     
-    // Wait for disk write thread to finish
+    // 4. Wait for the disk write thread to finish flushing the ring buffer and exit.
     if (m_diskWriteThread.joinable()) {
         m_diskWriteThread.join();
     }
     
-    // Stop USB audio streaming
+    // 5. Stop the underlying USB audio streaming.
     if (m_audioInterface) {
         m_audioInterface->stopStreaming();
     }
     
-    // Close WAV file
+    // 6. Close the WAV file, which writes the final header.
     if (m_wavWriter) {
         m_wavWriter->close();
-        delete m_wavWriter;
-        m_wavWriter = nullptr;
+        // The object itself will be deleted by the owner (JNI layer).
     }
     
-    // Clean up ring buffer
-    if (m_ringBuffer) {
-        delete m_ringBuffer;
-        m_ringBuffer = nullptr;
-    }
-    
-    LOGI("Recording stopped. Total samples: %zu", m_totalSamples);
+    LOGI("Recording stopped and flushed. Total samples: %zu", m_totalSamples);
     return true;
 }
 
@@ -118,20 +137,32 @@ void MultichannelRecorder::recordingThreadFunction() {
         // Read audio data from USB interface
         size_t bytesRead = m_audioInterface->readAudioData(buffer.data(), buffer.size());
         
+        LOG_FATAL_IF(bytesRead > buffer.size(),
+                     "bytesRead=%zu exceeds staging buffer=%zu", bytesRead, buffer.size());
+
         if (bytesRead > 0) {
             consecutiveEmptyReads = 0;
             totalBytesRead += bytesRead;
             
             // Process the audio buffer (level meters, clip detection)
             processAudioBuffer(buffer.data(), bytesRead);
-            
+
             // Update total samples
             size_t samplesInBuffer = bytesRead / (CHANNEL_COUNT * BYTES_PER_SAMPLE);
             m_totalSamples += samplesInBuffer;
-            
-            // Check for clipping
+
+            // Check for clipping on whole samples only to avoid overruns
+            size_t remainderBytes = bytesRead % BYTES_PER_SAMPLE;
+            if (remainderBytes != 0) {
+                static int remainderWarnings = 0;
+                if (remainderWarnings < 5) {
+                    LOGE("USB buffer contained %zu trailing bytes; skipping them for clip detection", remainderBytes);
+                    remainderWarnings++;
+                }
+            }
+
             const uint8_t* samplePtr = buffer.data();
-            for (size_t i = 0; i < bytesRead; i += BYTES_PER_SAMPLE) {
+            for (size_t i = 0; i + BYTES_PER_SAMPLE <= bytesRead; i += BYTES_PER_SAMPLE) {
                 int32_t sampleValue = extract24BitSample(samplePtr + i);
                 constexpr int32_t CLIP_THRESHOLD = 0x7FFFFF;
                 if (sampleValue >= CLIP_THRESHOLD || sampleValue <= -CLIP_THRESHOLD) {
@@ -142,6 +173,12 @@ void MultichannelRecorder::recordingThreadFunction() {
             
             // Write to ring buffer (lock-free, non-blocking)
             if (m_ringBuffer) {
+                const size_t availableSpace = m_ringBuffer->getAvailableSpace();
+                if (bytesRead > availableSpace) {
+                    LOGE("Ring buffer pressure: incoming=%zu, space=%zu (overflow #%zu)",
+                         bytesRead, availableSpace, bufferOverflows + 1);
+                }
+
                 size_t bytesWritten = m_ringBuffer->write(buffer.data(), bytesRead);
                 
                 if (bytesWritten < bytesRead) {
@@ -313,10 +350,6 @@ bool MultichannelRecorder::startRecordingInternal(
 
     LOGI("Starting recording to: %s (sampleRate=%d Hz)", destinationLabel.c_str(), m_sampleRate);
 
-    if (m_wavWriter) {
-        delete m_wavWriter;
-    }
-
     m_wavWriter = new WAVWriter();
     if (!openWriter(m_wavWriter)) {
         LOGE("Failed to prepare WAV destination: %s", destinationLabel.c_str());
@@ -346,9 +379,6 @@ bool MultichannelRecorder::startRecordingInternal(
     m_clipDetected.store(false);
 
     // Create ring buffer for decoupling USB reads from disk writes
-    if (m_ringBuffer) {
-        delete m_ringBuffer;
-    }
     m_ringBuffer = new LockFreeRingBuffer(RING_BUFFER_SIZE);
     LOGI("Created ring buffer: %zu MB (%zu bytes)", 
          RING_BUFFER_SIZE / (1024 * 1024), RING_BUFFER_SIZE);

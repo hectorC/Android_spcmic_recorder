@@ -96,6 +96,7 @@ private:
     bool readSampleRateFromClock(uint32_t& outRate);
     bool readSampleRateFromEndpoint(uint32_t& outRate);
     bool queryCurrentSampleRate(uint32_t& outRate, const char** sourceName);
+    void resetStreamingState();
 
     // Streaming endpoint details
     int m_streamInterfaceNumber;

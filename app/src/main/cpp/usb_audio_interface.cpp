@@ -19,6 +19,12 @@
 #define LOG_TAG "USBAudioInterface"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOG_FATAL_IF(cond, ...) \
+    do { \
+        if (cond) { \
+            __android_log_assert(#cond, LOG_TAG, __VA_ARGS__); \
+        } \
+    } while (false)
 
 // Define missing USB ioctl for getting current frame number (not in Android NDK headers)
 #ifndef USBDEVFS_GET_CURRENT_FRAME
@@ -1116,11 +1122,29 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
 
 void USBAudioInterface::releaseUrbResources() {
     if (m_urbs) {
+        if (m_deviceFd >= 0) {
+            // Request cancellation for every URB that might still be owned by the kernel.
+            for (int i = 0; i < NUM_URBS; ++i) {
+                if (!m_urbs[i]) {
+                    continue;
+                }
+
+                int discardResult = ioctl(m_deviceFd, USBDEVFS_DISCARDURB, m_urbs[i]);
+                if (discardResult != 0 && errno != EINVAL) {
+                    LOGE("Failed to discard URB[%d]: %s (errno %d)", i, strerror(errno), errno);
+                }
+            }
+
+            // Reap any URBs that were still in flight to ensure the kernel has fully detached from them.
+            struct usbdevfs_urb* completed = nullptr;
+            while (ioctl(m_deviceFd, USBDEVFS_REAPURBNDELAY, &completed) == 0) {
+                // Drain all completions; no additional work is required here because
+                // the URB memory is still owned by this object.
+            }
+        }
+
         for (int i = 0; i < NUM_URBS; ++i) {
             if (m_urbs[i]) {
-                if (m_deviceFd >= 0) {
-                    ioctl(m_deviceFd, USBDEVFS_DISCARDURB, m_urbs[i]);
-                }
                 free(m_urbs[i]);
                 m_urbs[i] = nullptr;
             }
@@ -1237,6 +1261,27 @@ bool USBAudioInterface::ensureUrbResources() {
     return true;
 }
 
+void USBAudioInterface::resetStreamingState() {
+    m_wasStreaming = false;
+    m_lastReapedUrbAddress = nullptr;
+    m_consecutiveSameUrbCount = 0;
+    m_recentReapCheckpoint = 0;
+    m_stuckUrbDetected = false;
+    m_callCount = 0;
+    m_attemptCount = 0;
+    m_submitErrorCount = 0;
+    m_reapCount = 0;
+    m_reapErrorCount = 0;
+    m_eagainCount = 0;
+    m_reapAttemptCount = 0;
+    m_notStreamingCount = 0;
+    m_noFramesCount = 0;
+    m_totalSubmitted = 0;
+    m_nextSubmitIndex = 0;
+    m_currentFrameNumber = 0;
+    m_frameNumberInitialized = false;
+}
+
 bool USBAudioInterface::sendControlRequest(uint8_t request, uint16_t value, 
                                          uint16_t index, uint8_t* data, uint16_t length) {
     struct usbdevfs_ctrltransfer ctrl;
@@ -1282,52 +1327,52 @@ bool USBAudioInterface::startStreaming() {
 }
 
 bool USBAudioInterface::stopStreaming() {
-    if (!m_isStreaming) {
-        return true;
-    }
-    
-    LOGI("Stopping USB audio streaming");
-    m_isStreaming = false;
-    
-    // Cancel any pending URBs before disabling the interface
-    if (m_urbs && m_deviceFd >= 0) {
-        // First, cancel all URBs
-        int cancelledCount = 0;
-        for (int i = 0; i < NUM_URBS; i++) {
-            if (m_urbs[i]) {
-                int result = ioctl(m_deviceFd, USBDEVFS_DISCARDURB, m_urbs[i]);
-                if (result == 0) {
-                    cancelledCount++;
-                } else if (errno != EINVAL) {
-                    // EINVAL means URB wasn't submitted or already completed - that's OK
-                    LOGE("Failed to cancel URB[%d]: %s (errno %d)", i, strerror(errno), errno);
+    if (m_isStreaming) {
+        LOGI("Stopping USB audio streaming");
+        m_isStreaming = false;
+
+        // Cancel any pending URBs before disabling the interface
+        if (m_urbs && m_deviceFd >= 0) {
+            int cancelledCount = 0;
+            for (int i = 0; i < NUM_URBS; i++) {
+                if (m_urbs[i]) {
+                    int result = ioctl(m_deviceFd, USBDEVFS_DISCARDURB, m_urbs[i]);
+                    if (result == 0) {
+                        cancelledCount++;
+                    } else if (errno != EINVAL) {
+                        // EINVAL means URB wasn't submitted or already completed - that's OK
+                        LOGE("Failed to cancel URB[%d]: %s (errno %d)", i, strerror(errno), errno);
+                    }
                 }
             }
-        }
-        
-        // Now reap all cancelled URBs to ensure they're fully processed
-        if (cancelledCount > 0) {
-            LOGI("Reaping %d cancelled URBs...", cancelledCount);
-            for (int i = 0; i < cancelledCount; i++) {
-                struct usbdevfs_urb *reaped_urb = nullptr;
-                int reap_result = ioctl(m_deviceFd, USBDEVFS_REAPURB, &reaped_urb);
-                if (reap_result < 0) {
-                    LOGE("Failed to reap cancelled URB %d: %s (errno %d)", i, strerror(errno), errno);
-                    break;
+
+            // Now reap all cancelled URBs to ensure they're fully processed
+            if (cancelledCount > 0) {
+                LOGI("Reaping %d cancelled URBs...", cancelledCount);
+                for (int i = 0; i < cancelledCount; i++) {
+                    struct usbdevfs_urb *reaped_urb = nullptr;
+                    int reap_result = ioctl(m_deviceFd, USBDEVFS_REAPURB, &reaped_urb);
+                    if (reap_result < 0) {
+                        LOGE("Failed to reap cancelled URB %d: %s (errno %d)", i, strerror(errno), errno);
+                        break;
+                    }
                 }
             }
+
+            LOGI("Cancelled and reaped all pending URBs");
         }
-        
-        LOGI("Cancelled and reaped all pending URBs");
+    } else {
+        LOGI("stopStreaming called while already stopped");
     }
 
     releaseUrbResources();
-    
+    resetStreamingState();
+
     // Disable audio streaming - set SPCMic Interface 3 back to alt setting 0
     // This stops the 84-channel audio streaming
     int streamingInterface = (m_streamInterfaceNumber >= 0) ? m_streamInterfaceNumber : 3;
     setInterface(streamingInterface, 0);
-    
+
     LOGI("USB audio streaming stopped");
     return true;
 }
@@ -1426,30 +1471,22 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
     }
 
     
+    if (!m_wasStreaming) {
+        LOGI("Streaming started - resetting URB queue state");
+        releaseUrbResources();
+        resetStreamingState();
+        if (!ensureUrbResources()) {
+            return 0;
+        }
+        m_wasStreaming = true;
+    }
+
     m_callCount++;
-    
+
     // Log first few calls with state information
     if (m_callCount <= 5 || m_callCount % 1000 == 0) {
         LOGI("readAudioData called (count=%d): bufferSize=%zu, isStreaming=%d, m_wasStreaming=%d, urbsInit=%d, totalSub=%d, fd=%d", 
              m_callCount, bufferSize, m_isStreaming, m_wasStreaming, m_urbsInitialized, m_totalSubmitted, m_deviceFd);
-    }
-    
-    // Detect streaming state change and reset URB queue
-    if (m_isStreaming && !m_wasStreaming) {
-        // Just started streaming - reset URB queue
-        LOGI("Streaming started - resetting URB queue state");
-        releaseUrbResources();
-        m_totalSubmitted = 0;
-        m_nextSubmitIndex = 0;
-        m_frameNumberInitialized = false; // Reset frame number tracking
-        m_wasStreaming = true;
-        if (!ensureUrbResources()) {
-            return 0;
-        }
-    } else if (!m_isStreaming && m_wasStreaming) {
-        // Just stopped streaming
-        LOGI("Streaming stopped - will re-initialize on next start");
-        m_wasStreaming = false;
     }
     
     if (!m_urbsInitialized && !ensureUrbResources()) {
@@ -1560,9 +1597,7 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
                 
                 // Reset URB state and re-initialize
                 releaseUrbResources();
-                m_consecutiveSameUrbCount = 0;
-                m_lastReapedUrbAddress = nullptr;
-                m_stuckUrbDetected = false;
+                resetStreamingState();
                 
                 LOGI("All URBs cancelled - will reinitialize on next readAudioData() call");
                 return total_bytes_accumulated;
@@ -1590,15 +1625,31 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
         // Copy data to output buffer if we have room and data exists
         if (total_actual > 0 && total_bytes_accumulated < bufferSize) {
             uint8_t* urbData = static_cast<uint8_t*>(completed_urb->buffer);
+            LOG_FATAL_IF(urbData == nullptr, "URB[%d] buffer is null", urb_index);
+            LOG_FATAL_IF(m_urbBufferSize == 0, "URB[%d] buffer size is zero", urb_index);
+
             size_t packetOffset = 0;
             for (size_t pkt = 0; pkt < m_packetsPerUrb && total_bytes_accumulated < bufferSize; ++pkt) {
                 unsigned int packetLength = completed_urb->iso_frame_desc[pkt].actual_length;
                 if (packetLength > 0) {
+                    LOG_FATAL_IF(packetOffset >= m_urbBufferSize,
+                                 "URB[%d] packetOffset=%zu exceeds buffer=%zu (pkt=%zu)",
+                                 urb_index, packetOffset, m_urbBufferSize, pkt);
+
                     if (packetOffset + packetLength > m_urbBufferSize) {
                         LOGE("Packet length %u exceeds URB buffer bounds (offset=%zu, size=%zu)", packetLength, packetOffset, m_urbBufferSize);
                         packetLength = std::min<unsigned int>(packetLength, static_cast<unsigned int>(m_urbBufferSize - packetOffset));
                     }
-                    size_t bytesToCopy = std::min(static_cast<size_t>(packetLength), bufferSize - total_bytes_accumulated);
+
+                    const size_t remainingDest = bufferSize - total_bytes_accumulated;
+                    const size_t bytesToCopy = std::min(static_cast<size_t>(packetLength), remainingDest);
+                    LOG_FATAL_IF(bytesToCopy == 0 && packetLength > 0,
+                                 "URB[%d] has data (%u bytes) but destination exhausted (pkt=%zu)",
+                                 urb_index, packetLength, pkt);
+                    LOG_FATAL_IF(packetOffset + bytesToCopy > m_urbBufferSize,
+                                 "URB[%d] copy range exceeds source bounds (offset=%zu, copy=%zu, size=%zu)",
+                                 urb_index, packetOffset, bytesToCopy, m_urbBufferSize);
+
                     memcpy(buffer + total_bytes_accumulated, urbData + packetOffset, bytesToCopy);
                     total_bytes_accumulated += bytesToCopy;
                 }

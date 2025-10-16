@@ -3,6 +3,7 @@
 #include <android/log.h>
 #include <android/asset_manager_jni.h>
 #include "playback/playback_engine.h"
+#include "../jni_probe.h"
 
 #define LOG_TAG "PlaybackJNI"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
@@ -19,6 +20,7 @@ JNIEXPORT jlong JNICALL
 Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeCreate(
     JNIEnv* env,
     jobject /* this */) {
+    LogJniProbe(env, "nativeCreate-entry", "PlaybackJNI");
     
     PlaybackEngine* engine = new PlaybackEngine();
     LOGD("Created playback engine: %p", engine);
@@ -30,6 +32,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeDestroy(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativeDestroy-entry", "PlaybackJNI");
     
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (engine) {
@@ -44,6 +47,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeSetAssetManager(
     jobject /* this */,
     jlong engineHandle,
     jobject assetManager) {
+    LogJniProbe(env, "nativeSetAssetManager-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -61,6 +65,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeSetCacheDirectory(
     jobject /* this */,
     jlong engineHandle,
     jstring cacheDirectory) {
+    LogJniProbe(env, "nativeSetCacheDirectory-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -81,6 +86,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeUseCachedPreRender(
     jobject /* this */,
     jlong engineHandle,
     jstring sourcePath) {
+    LogJniProbe(env, "nativeUseCachedPreRender-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -102,6 +108,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeLoadFile(
     jobject /* this */,
     jlong engineHandle,
     jstring filePath) {
+    LogJniProbe(env, "nativeLoadFile-entry", "PlaybackJNI");
     
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -124,6 +131,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeLoadFileFromDescrip
     jlong engineHandle,
     jint fd,
     jstring displayPath) {
+    LogJniProbe(env, "nativeLoadFileFromDescriptor-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -146,6 +154,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativePlay(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativePlay-entry", "PlaybackJNI");
     
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -162,6 +171,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativePause(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativePause-entry", "PlaybackJNI");
     
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (engine) {
@@ -174,6 +184,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeStop(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativeStop-entry", "PlaybackJNI");
     
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (engine) {
@@ -187,6 +198,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeSeek(
     jobject /* this */,
     jlong engineHandle,
     jdouble positionSeconds) {
+    LogJniProbe(env, "nativeSeek-entry", "PlaybackJNI");
     
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -203,6 +215,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativePreparePreRender(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativePreparePreRender-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -219,6 +232,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeIsPreRenderReady(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativeIsPreRenderReady-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -233,6 +247,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeGetPreRenderProgres
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativeGetPreRenderProgress-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -248,6 +263,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeSetPlaybackGain(
     jobject /* this */,
     jlong engineHandle,
     jfloat gainDb) {
+    LogJniProbe(env, "nativeSetPlaybackGain-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -263,6 +279,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeGetPlaybackGain(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativeGetPlaybackGain-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -278,6 +295,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeSetLooping(
     jobject /* this */,
     jlong engineHandle,
     jboolean enabled) {
+    LogJniProbe(env, "nativeSetLooping-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -293,6 +311,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeIsLooping(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativeIsLooping-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -308,6 +327,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeExportPreRendered(
     jobject /* this */,
     jlong engineHandle,
     jstring destinationPath) {
+    LogJniProbe(env, "nativeExportPreRendered-entry", "PlaybackJNI");
 
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -328,6 +348,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeGetPosition(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativeGetPosition-entry", "PlaybackJNI");
     
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -342,6 +363,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeGetDuration(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativeGetDuration-entry", "PlaybackJNI");
     
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -356,6 +378,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeGetState(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativeGetState-entry", "PlaybackJNI");
     
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
@@ -370,6 +393,7 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeIsFileLoaded(
     JNIEnv* env,
     jobject /* this */,
     jlong engineHandle) {
+    LogJniProbe(env, "nativeIsFileLoaded-entry", "PlaybackJNI");
     
     PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
     if (!engine) {
