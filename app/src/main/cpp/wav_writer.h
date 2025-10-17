@@ -20,10 +20,13 @@ public:
     size_t getBytesWritten() const { return m_dataSize; }
     
 private:
+    static constexpr uint32_t MAX_UINT32 = 0xFFFFFFFFu;
+    static constexpr uint32_t DS64_CHUNK_SIZE = 28u;
+
     FILE* m_file;
     int m_ownedFd;
     std::string m_filename;
-    
+
     // WAV format parameters
     int m_sampleRate;
     int m_channels;
@@ -31,39 +34,23 @@ private:
     int m_bytesPerSample;
     int m_blockAlign;
     int m_byteRate;
-    
+
     // File tracking
-    size_t m_dataSize;
-    off_t m_dataChunkPos;
-    
-    // WAV file structure
-    struct WAVHeader {
-        // RIFF chunk
-        char riffID[4];           // "RIFF"
-        uint32_t riffSize;        // File size - 8
-        char waveID[4];           // "WAVE"
-        
-        // Format chunk
-        char formatID[4];         // "fmt "
-        uint32_t formatSize;      // Format chunk size (16 for PCM)
-        uint16_t audioFormat;     // Audio format (1 for PCM)
-        uint16_t numChannels;     // Number of channels
-        uint32_t sampleRate;      // Sample rate
-        uint32_t byteRate;        // Byte rate
-        uint16_t blockAlign;      // Block align
-        uint16_t bitsPerSample;   // Bits per sample
-        
-        // Data chunk header
-        char dataID[4];           // "data"
-        uint32_t dataSize;        // Data size
-    } __attribute__((packed));
-    
-    static constexpr off_t RIFF_SIZE_OFFSET = offsetof(WAVHeader, riffSize);
-    static constexpr off_t DATA_SIZE_OFFSET = offsetof(WAVHeader, dataSize);
+    uint64_t m_dataSize;
+    uint64_t m_totalFrames;
+    off_t m_dataSizePos;
+    off_t m_ds64ChunkPos;
+    off_t m_ds64SizePos;
+    off_t m_ds64DataPos;
 
     bool writeHeader();
     bool updateHeader();
-    void initializeHeader(WAVHeader& header);
     void initializeFormat(int sampleRate, int channels, int bitsPerSample);
     void resetState();
+
+    bool writeFourCC(const char* fourcc);
+    bool writeUint16(uint16_t value);
+    bool writeUint32(uint32_t value);
+    bool writeUint64(uint64_t value);
+    bool writeZeros(size_t count);
 };

@@ -31,15 +31,20 @@ data class Recording(
     val cacheKey: String?
         get() = file?.absolutePath ?: documentUri?.toString() ?: displayPath.takeIf { it.isNotBlank() }
     
-    val durationSeconds: Int
-        get() = (durationMs / 1000).toInt()
+    val durationSeconds: Long
+        get() = durationMs / 1000L
     
     val formattedDuration: String
         get() {
             val totalSeconds = durationSeconds
-            val minutes = totalSeconds / 60
+            val hours = totalSeconds / 3600
+            val minutes = (totalSeconds % 3600) / 60
             val seconds = totalSeconds % 60
-            return String.format("%d:%02d", minutes, seconds)
+            return if (hours > 0) {
+                String.format("%d:%02d:%02d", hours, minutes, seconds)
+            } else {
+                String.format("%d:%02d", minutes, seconds)
+            }
         }
     
     val formattedSampleRate: String

@@ -19,7 +19,11 @@ WAVWriter::WAVWriter()
     , m_blockAlign(0)
     , m_byteRate(0)
     , m_dataSize(0)
-    , m_dataChunkPos(0) {}
+    , m_totalFrames(0)
+    , m_dataSizePos(0)
+    , m_ds64ChunkPos(0)
+    , m_ds64SizePos(0)
+    , m_ds64DataPos(0) {}
 
 WAVWriter::~WAVWriter() {
     close();
@@ -109,7 +113,10 @@ bool WAVWriter::writeData(const uint8_t* data, size_t size) {
         return false;
     }
 
-    m_dataSize += size;
+    m_dataSize += static_cast<uint64_t>(size);
+    if (m_blockAlign > 0) {
+        m_totalFrames = m_dataSize / static_cast<uint64_t>(m_blockAlign);
+    }
     return true;
 }
 
@@ -119,7 +126,7 @@ void WAVWriter::close() {
     }
 
     const std::string filenameLog = m_filename;
-    LOGI("Closing WAV file: %s (wrote %zu bytes)", filenameLog.c_str(), m_dataSize);
+    LOGI("Closing WAV file: %s (wrote %llu bytes)", filenameLog.c_str(), static_cast<unsigned long long>(m_dataSize));
 
     if (!updateHeader()) {
         LOGE("Failed to finalize WAV header");
@@ -143,17 +150,99 @@ bool WAVWriter::writeHeader() {
         return false;
     }
 
-    WAVHeader header;
-    initializeHeader(header);
-
-    size_t written = fwrite(&header, sizeof(header), 1, m_file);
-    if (written != 1) {
-        LOGE("Failed to write WAV header: %s", strerror(errno));
+    // RIFF header
+    if (!writeFourCC("RIFF")) {
+        LOGE("Failed to write RIFF tag");
         return false;
     }
-    fflush(m_file);
+    if (!writeUint32(0)) { // Placeholder for RIFF size
+        LOGE("Failed to reserve RIFF size");
+        return false;
+    }
+    if (!writeFourCC("WAVE")) {
+        LOGE("Failed to write WAVE tag");
+        return false;
+    }
 
-    m_dataChunkPos = DATA_SIZE_OFFSET;
+    // Reserve space for optional ds64 chunk by writing a JUNK chunk immediately after the header.
+    m_ds64ChunkPos = ftello(m_file);
+    if (m_ds64ChunkPos < 0) {
+        LOGE("Failed to get JUNK chunk position: %s", strerror(errno));
+        return false;
+    }
+    if (!writeFourCC("JUNK")) {
+        LOGE("Failed to write JUNK placeholder");
+        return false;
+    }
+    m_ds64SizePos = ftello(m_file);
+    if (m_ds64SizePos < 0) {
+        LOGE("Failed to track JUNK size position: %s", strerror(errno));
+        return false;
+    }
+    if (!writeUint32(DS64_CHUNK_SIZE)) {
+        LOGE("Failed to set JUNK size");
+        return false;
+    }
+    m_ds64DataPos = ftello(m_file);
+    if (m_ds64DataPos < 0) {
+        LOGE("Failed to track JUNK data position: %s", strerror(errno));
+        return false;
+    }
+    if (!writeZeros(DS64_CHUNK_SIZE)) {
+        LOGE("Failed to reserve JUNK data");
+        return false;
+    }
+
+    // fmt chunk (PCM)
+    if (!writeFourCC("fmt ")) {
+        LOGE("Failed to write fmt tag");
+        return false;
+    }
+    if (!writeUint32(16)) {
+        LOGE("Failed to write fmt chunk size");
+        return false;
+    }
+    if (!writeUint16(static_cast<uint16_t>(1))) { // PCM
+        LOGE("Failed to write audio format");
+        return false;
+    }
+    if (!writeUint16(static_cast<uint16_t>(m_channels))) {
+        LOGE("Failed to write channel count");
+        return false;
+    }
+    if (!writeUint32(static_cast<uint32_t>(m_sampleRate))) {
+        LOGE("Failed to write sample rate");
+        return false;
+    }
+    if (!writeUint32(static_cast<uint32_t>(m_byteRate))) {
+        LOGE("Failed to write byte rate");
+        return false;
+    }
+    if (!writeUint16(static_cast<uint16_t>(m_blockAlign))) {
+        LOGE("Failed to write block align");
+        return false;
+    }
+    if (!writeUint16(static_cast<uint16_t>(m_bitsPerSample))) {
+        LOGE("Failed to write bits-per-sample");
+        return false;
+    }
+
+    // data chunk header
+    if (!writeFourCC("data")) {
+        LOGE("Failed to write data tag");
+        return false;
+    }
+    m_dataSizePos = ftello(m_file);
+    if (m_dataSizePos < 0) {
+        LOGE("Failed to get data size position: %s", strerror(errno));
+        return false;
+    }
+    if (!writeUint32(0)) {
+        LOGE("Failed to reserve data size");
+        return false;
+    }
+
+    fflush(m_file);
     return true;
 }
 
@@ -168,26 +257,90 @@ bool WAVWriter::updateHeader() {
         return false;
     }
 
-    uint32_t riffSize = static_cast<uint32_t>(sizeof(WAVHeader) - 8 + m_dataSize);
-    if (fseeko(m_file, RIFF_SIZE_OFFSET, SEEK_SET) != 0) {
-        LOGE("Failed to seek to RIFF size: %s", strerror(errno));
-        return false;
-    }
-    if (fwrite(&riffSize, sizeof(riffSize), 1, m_file) != 1) {
-        LOGE("Failed to write RIFF size: %s", strerror(errno));
-        return false;
+    uint64_t fileSize = static_cast<uint64_t>(currentPos);
+    uint64_t riffSize64 = (fileSize >= 8) ? (fileSize - 8) : 0;
+    uint64_t sampleFrames = (m_blockAlign > 0) ? (m_dataSize / static_cast<uint64_t>(m_blockAlign)) : 0;
+
+    const bool needsRf64 = (m_dataSize > MAX_UINT32) || (riffSize64 > MAX_UINT32);
+
+    if (needsRf64) {
+        // Update chunk ID to RF64
+        if (fseeko(m_file, 0, SEEK_SET) != 0) {
+            LOGE("Failed to seek to RIFF tag: %s", strerror(errno));
+            return false;
+        }
+        if (!writeFourCC("RF64")) {
+            LOGE("Failed to write RF64 tag");
+            return false;
+        }
+
+        // RIFF size placeholder set to max 32-bit
+        if (!writeUint32(MAX_UINT32)) {
+            LOGE("Failed to set RF64 chunk size");
+            return false;
+        }
+
+        // Overwrite JUNK placeholder with ds64 chunk
+        if (fseeko(m_file, m_ds64ChunkPos, SEEK_SET) != 0) {
+            LOGE("Failed to seek to ds64 chunk: %s", strerror(errno));
+            return false;
+        }
+        if (!writeFourCC("ds64")) {
+            LOGE("Failed to write ds64 tag");
+            return false;
+        }
+        if (!writeUint32(DS64_CHUNK_SIZE)) {
+            LOGE("Failed to write ds64 size");
+            return false;
+        }
+        if (!writeUint64(riffSize64)) {
+            LOGE("Failed to write ds64 riff size");
+            return false;
+        }
+        if (!writeUint64(m_dataSize)) {
+            LOGE("Failed to write ds64 data size");
+            return false;
+        }
+        if (!writeUint64(sampleFrames)) {
+            LOGE("Failed to write ds64 sample count");
+            return false;
+        }
+        if (!writeUint32(0)) { // table length
+            LOGE("Failed to write ds64 table length");
+            return false;
+        }
+
+        // Set data chunk size to max 32-bit
+        if (fseeko(m_file, m_dataSizePos, SEEK_SET) != 0) {
+            LOGE("Failed to seek to data size for RF64: %s", strerror(errno));
+            return false;
+        }
+        if (!writeUint32(MAX_UINT32)) {
+            LOGE("Failed to write RF64 data size placeholder");
+            return false;
+        }
+    } else {
+        // Standard RIFF update
+        if (fseeko(m_file, 4, SEEK_SET) != 0) {
+            LOGE("Failed to seek to RIFF size: %s", strerror(errno));
+            return false;
+        }
+        if (!writeUint32(static_cast<uint32_t>(riffSize64))) {
+            LOGE("Failed to write RIFF size");
+            return false;
+        }
+
+        if (fseeko(m_file, m_dataSizePos, SEEK_SET) != 0) {
+            LOGE("Failed to seek to data size: %s", strerror(errno));
+            return false;
+        }
+        if (!writeUint32(static_cast<uint32_t>(m_dataSize))) {
+            LOGE("Failed to write data size");
+            return false;
+        }
     }
 
-    uint32_t dataSize = static_cast<uint32_t>(m_dataSize);
-    if (fseeko(m_file, m_dataChunkPos, SEEK_SET) != 0) {
-        LOGE("Failed to seek to data chunk: %s", strerror(errno));
-        return false;
-    }
-    if (fwrite(&dataSize, sizeof(dataSize), 1, m_file) != 1) {
-        LOGE("Failed to write data size: %s", strerror(errno));
-        return false;
-    }
-
+    // Restore file position
     if (fseeko(m_file, currentPos, SEEK_SET) != 0) {
         LOGE("Failed to restore position: %s", strerror(errno));
         return false;
@@ -195,26 +348,6 @@ bool WAVWriter::updateHeader() {
 
     fflush(m_file);
     return true;
-}
-
-void WAVWriter::initializeHeader(WAVHeader& header) {
-    std::memset(&header, 0, sizeof(header));
-
-    std::memcpy(header.riffID, "RIFF", 4);
-    header.riffSize = sizeof(WAVHeader) - 8;
-    std::memcpy(header.waveID, "WAVE", 4);
-
-    std::memcpy(header.formatID, "fmt ", 4);
-    header.formatSize = 16;
-    header.audioFormat = 1;
-    header.numChannels = m_channels;
-    header.sampleRate = m_sampleRate;
-    header.byteRate = m_byteRate;
-    header.blockAlign = m_blockAlign;
-    header.bitsPerSample = m_bitsPerSample;
-
-    std::memcpy(header.dataID, "data", 4);
-    header.dataSize = 0;
 }
 
 void WAVWriter::initializeFormat(int sampleRate, int channels, int bitsPerSample) {
@@ -225,7 +358,11 @@ void WAVWriter::initializeFormat(int sampleRate, int channels, int bitsPerSample
     m_blockAlign = m_channels * m_bytesPerSample;
     m_byteRate = m_sampleRate * m_blockAlign;
     m_dataSize = 0;
-    m_dataChunkPos = 0;
+    m_totalFrames = 0;
+    m_dataSizePos = 0;
+    m_ds64ChunkPos = 0;
+    m_ds64SizePos = 0;
+    m_ds64DataPos = 0;
 }
 
 void WAVWriter::resetState() {
@@ -238,5 +375,54 @@ void WAVWriter::resetState() {
     m_blockAlign = 0;
     m_byteRate = 0;
     m_dataSize = 0;
-    m_dataChunkPos = 0;
+    m_totalFrames = 0;
+    m_dataSizePos = 0;
+    m_ds64ChunkPos = 0;
+    m_ds64SizePos = 0;
+    m_ds64DataPos = 0;
+}
+
+bool WAVWriter::writeFourCC(const char* fourcc) {
+    return fwrite(fourcc, 1, 4, m_file) == 4;
+}
+
+bool WAVWriter::writeUint16(uint16_t value) {
+    uint8_t bytes[2] = {
+        static_cast<uint8_t>(value & 0xFF),
+        static_cast<uint8_t>((value >> 8) & 0xFF)
+    };
+    return fwrite(bytes, 1, 2, m_file) == 2;
+}
+
+bool WAVWriter::writeUint32(uint32_t value) {
+    uint8_t bytes[4] = {
+        static_cast<uint8_t>(value & 0xFF),
+        static_cast<uint8_t>((value >> 8) & 0xFF),
+        static_cast<uint8_t>((value >> 16) & 0xFF),
+        static_cast<uint8_t>((value >> 24) & 0xFF)
+    };
+    return fwrite(bytes, 1, 4, m_file) == 4;
+}
+
+bool WAVWriter::writeUint64(uint64_t value) {
+    uint8_t bytes[8];
+    for (int i = 0; i < 8; ++i) {
+        bytes[i] = static_cast<uint8_t>((value >> (8 * i)) & 0xFF);
+    }
+    return fwrite(bytes, 1, 8, m_file) == 8;
+}
+
+bool WAVWriter::writeZeros(size_t count) {
+    static constexpr size_t BUFFER_SIZE = 64;
+    uint8_t zeros[BUFFER_SIZE] = {0};
+
+    size_t remaining = count;
+    while (remaining > 0) {
+        size_t chunk = remaining < BUFFER_SIZE ? remaining : BUFFER_SIZE;
+        if (fwrite(zeros, 1, chunk, m_file) != chunk) {
+            return false;
+        }
+        remaining -= chunk;
+    }
+    return true;
 }

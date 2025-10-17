@@ -21,7 +21,10 @@ object WavMetadataParser {
         val sampleRate: Int,
         val channels: Int,
         val bitsPerSample: Int,
-        val dataSize: Long,
+        val headerDataSize: Long,
+        val dataOffset: Long,
+        val dataSizeBytes: Long,
+        val sampleCount: Long?,
         val durationMs: Long
     )
     
@@ -40,7 +43,8 @@ object WavMetadataParser {
                 raf.read(riffHeader)
                 
                 val riff = String(riffHeader, 0, 4)
-                if (riff != "RIFF") {
+                val isRf64 = riff == "RF64"
+                if (!isRf64 && riff != "RIFF") {
                     Log.e(TAG, "Not a valid WAV file: $file")
                     return null
                 }
@@ -55,7 +59,10 @@ object WavMetadataParser {
                 var sampleRate = 0
                 var channels = 0
                 var bitsPerSample = 0
-                var dataSize = 0L
+                var headerDataSize = 0L
+                var dataChunkOffset = -1L
+                var ds64DataSize: Long? = null
+                var ds64SampleCount: Long? = null
                 
                 while (raf.filePointer < raf.length()) {
                     val chunkHeader = ByteArray(8)
@@ -83,31 +90,75 @@ object WavMetadataParser {
                             bitsPerSample = buffer.short.toInt()
                         }
                         "data" -> {
-                            dataSize = chunkSize
+                            headerDataSize = chunkSize
+                            dataChunkOffset = raf.filePointer
                             break // We have all we need
+                        }
+                        "ds64" -> {
+                            if (chunkSize > Int.MAX_VALUE) {
+                                Log.e(TAG, "ds64 chunk too large to process: $chunkSize bytes")
+                                return null
+                            }
+                            val size = chunkSize.toInt()
+                            val ds64Data = ByteArray(size)
+                            raf.readFully(ds64Data)
+
+                            if (size >= 28) {
+                                val buffer = ByteBuffer.wrap(ds64Data).order(ByteOrder.LITTLE_ENDIAN)
+                                buffer.long // riffSize64 (unused)
+                                ds64DataSize = buffer.long
+                                ds64SampleCount = buffer.long
+                                buffer.int // tableLength (ignored)
+                            }
                         }
                         else -> {
                             // Skip unknown chunk
                             raf.seek(raf.filePointer + chunkSize)
                         }
                     }
+
+                    if (chunkSize % 2L == 1L) {
+                        raf.seek(raf.filePointer + 1)
+                    }
                 }
                 
-                if (sampleRate == 0 || channels == 0 || bitsPerSample == 0 || dataSize == 0L) {
+                if (sampleRate == 0 || channels == 0 || bitsPerSample == 0 || headerDataSize == 0L || dataChunkOffset < 0L) {
                     Log.e(TAG, "Invalid WAV metadata for file: $file")
                     return null
                 }
                 
-                // Calculate duration
+                // Calculate duration (account for files larger than 4 GB where header wraps)
                 val bytesPerSample = bitsPerSample / 8
-                val totalSamples = dataSize / (channels * bytesPerSample)
-                val durationMs = (totalSamples * 1000) / sampleRate
+                if (bytesPerSample <= 0) {
+                    Log.e(TAG, "Invalid bytes-per-sample for file: $file")
+                    return null
+                }
+
+                val fileLength = raf.length()
+                val frameSize = channels * bytesPerSample
+                val availablePayload = if (fileLength > dataChunkOffset) fileLength - dataChunkOffset else 0L
+                val dataSize = ds64DataSize?.takeIf { it > 0L } ?: when {
+                    availablePayload > headerDataSize && availablePayload > 0L -> availablePayload
+                    headerDataSize == 0L && availablePayload > 0L -> availablePayload
+                    headerDataSize > 0L && headerDataSize != 0xFFFFFFFFL -> headerDataSize
+                    availablePayload > 0L -> availablePayload
+                    else -> headerDataSize
+                }
+                val totalFrames = when {
+                    frameSize > 0 -> dataSize / frameSize
+                    else -> 0L
+                }
+                val resolvedSampleCount = ds64SampleCount?.takeIf { it > 0L } ?: totalFrames.takeIf { it > 0L }
+                val durationMs = if (sampleRate > 0 && totalFrames > 0) (totalFrames * 1000L) / sampleRate else 0L
                 
                 return WavMetadata(
                     sampleRate = sampleRate,
                     channels = channels,
                     bitsPerSample = bitsPerSample,
-                    dataSize = dataSize,
+                    headerDataSize = headerDataSize,
+                    dataOffset = dataChunkOffset,
+                    dataSizeBytes = dataSize,
+                    sampleCount = resolvedSampleCount,
                     durationMs = durationMs
                 )
             }
@@ -146,7 +197,7 @@ object WavMetadataParser {
         }
 
         val riff = String(header, 0, 4)
-        if (riff != "RIFF") {
+        if (riff != "RIFF" && riff != "RF64") {
             return null
         }
 
@@ -154,11 +205,14 @@ object WavMetadataParser {
         if (wave != "WAVE") {
             return null
         }
-
         var sampleRate = 0
         var channels = 0
         var bitsPerSample = 0
-        var dataSize = 0L
+        var headerDataSize = 0L
+        var dataOffset = -1L
+        var bytesConsumed = 12L
+        var ds64DataSize: Long? = null
+        var ds64SampleCount: Long? = null
 
         val chunkHeader = ByteArray(8)
 
@@ -168,6 +222,7 @@ object WavMetadataParser {
                 .order(ByteOrder.LITTLE_ENDIAN)
                 .int
                 .toLong() and 0xFFFFFFFFL
+            bytesConsumed += 8
 
             when (chunkId) {
                 "fmt " -> {
@@ -175,6 +230,7 @@ object WavMetadataParser {
                     if (!stream.readFully(fmtData)) {
                         return null
                     }
+                    bytesConsumed += chunkSize
 
                     val buffer = ByteBuffer.wrap(fmtData).order(ByteOrder.LITTLE_ENDIAN)
                     buffer.short // audio format
@@ -184,31 +240,66 @@ object WavMetadataParser {
                     buffer.short // block align
                     bitsPerSample = buffer.short.toInt()
                 }
+                "ds64" -> {
+                    if (chunkSize > Int.MAX_VALUE) {
+                        return null
+                    }
+                    val size = chunkSize.toInt()
+                    val ds64Data = ByteArray(size)
+                    if (!stream.readFully(ds64Data)) {
+                        return null
+                    }
+                    bytesConsumed += chunkSize
+
+                    if (size >= 28) {
+                        val buffer = ByteBuffer.wrap(ds64Data).order(ByteOrder.LITTLE_ENDIAN)
+                        buffer.long // riffSize64 (unused)
+                        ds64DataSize = buffer.long
+                        ds64SampleCount = buffer.long
+                        buffer.int // tableLength (ignored)
+                    }
+                }
                 "data" -> {
-                    dataSize = chunkSize
+                    headerDataSize = chunkSize
+                    dataOffset = bytesConsumed
                     break
                 }
                 else -> {
                     if (!stream.skipFully(chunkSize)) {
                         return null
                     }
+                    bytesConsumed += chunkSize
                 }
+            }
+
+            if (chunkSize % 2L == 1L) {
+                if (!stream.skipFully(1)) {
+                    return null
+                }
+                bytesConsumed += 1
             }
         }
 
-        if (sampleRate == 0 || channels == 0 || bitsPerSample == 0 || dataSize == 0L) {
+        if (sampleRate == 0 || channels == 0 || bitsPerSample == 0 || headerDataSize == 0L || dataOffset < 0L) {
             return null
         }
 
         val bytesPerSample = bitsPerSample / 8
-        val totalSamples = dataSize / (channels * bytesPerSample)
-        val durationMs = (totalSamples * 1000) / sampleRate
+        if (bytesPerSample <= 0) {
+            return null
+        }
+        val dataSize = ds64DataSize?.takeIf { it > 0L } ?: headerDataSize
+        val resolvedSampleCount = ds64SampleCount?.takeIf { it > 0L }
+        val durationMs = if (sampleRate > 0 && resolvedSampleCount != null) (resolvedSampleCount * 1000L) / sampleRate else 0L
 
         return WavMetadata(
             sampleRate = sampleRate,
             channels = channels,
             bitsPerSample = bitsPerSample,
-            dataSize = dataSize,
+            headerDataSize = headerDataSize,
+            dataOffset = dataOffset,
+            dataSizeBytes = dataSize,
+            sampleCount = resolvedSampleCount,
             durationMs = durationMs
         )
     }
@@ -236,12 +327,46 @@ object WavMetadataParser {
         }
         return true
     }
-    
+
+    private fun resolveDuration(metadata: WavMetadata, totalFileSize: Long?): Long {
+        val sampleCount = metadata.sampleCount
+        if (sampleCount != null && sampleCount > 0 && metadata.sampleRate > 0) {
+            return (sampleCount * 1000L) / metadata.sampleRate
+        }
+
+        val bytesPerSample = metadata.bitsPerSample / 8
+        if (bytesPerSample <= 0) {
+            return 0L
+        }
+
+        var candidateSize = metadata.dataSizeBytes.takeIf { it > 0 } ?: metadata.headerDataSize
+        if (totalFileSize != null && totalFileSize > 0 && metadata.dataOffset >= 0) {
+            val payload = totalFileSize - metadata.dataOffset
+            if (payload > candidateSize) {
+                candidateSize = payload
+            }
+        }
+
+        if (candidateSize <= 0L) {
+            return 0L
+        }
+
+        val frameSize = metadata.channels * bytesPerSample
+        if (frameSize <= 0) {
+            return 0L
+        }
+
+        val totalFrames = candidateSize / frameSize
+        return if (metadata.sampleRate > 0) (totalFrames * 1000L) / metadata.sampleRate else 0L
+    }
+
     /**
      * Create Recording object from file
      */
     fun createRecording(file: File): Recording? {
         val metadata = parseMetadata(file) ?: return null
+
+        val durationMs = resolveDuration(metadata, file.length())
 
         return Recording(
             file = file,
@@ -249,7 +374,7 @@ object WavMetadataParser {
             displayPath = file.absolutePath,
             fileName = file.name,
             dateTime = file.lastModified(),
-            durationMs = metadata.durationMs,
+            durationMs = durationMs,
             sampleRate = metadata.sampleRate,
             channels = metadata.channels,
             fileSizeBytes = file.length()
@@ -270,7 +395,7 @@ object WavMetadataParser {
         val sizeBytes = when {
             fallbackFile != null && fallbackFile.exists() -> fallbackFile.length()
             documentFile.length() > 0 -> documentFile.length()
-            else -> metadata.dataSize
+            else -> (metadata.dataOffset + metadata.dataSizeBytes).takeIf { it > 0 } ?: metadata.headerDataSize
         }
 
         val modified = when {
@@ -279,13 +404,15 @@ object WavMetadataParser {
             else -> System.currentTimeMillis()
         }
 
+        val durationMs = resolveDuration(metadata, sizeBytes.takeIf { it > 0 })
+
         return Recording(
             file = fallbackFile?.takeIf { it.exists() },
             documentUri = documentFile.uri,
             displayPath = displayPath,
             fileName = documentFile.name ?: fallbackFile?.name ?: "recording.wav",
             dateTime = modified,
-            durationMs = metadata.durationMs,
+            durationMs = durationMs,
             sampleRate = metadata.sampleRate,
             channels = metadata.channels,
             fileSizeBytes = sizeBytes
