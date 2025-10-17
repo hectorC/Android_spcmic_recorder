@@ -92,7 +92,7 @@ bool MultichannelRecorder::startMonitoring(float gainDb) {
     // Initialize gain (both current and target to avoid initial ramp)
     gainDb = std::max(0.0f, std::min(64.0f, gainDb));
     m_gainLinear = std::pow(10.0f, gainDb / 20.0f);
-    m_targetGainLinear = m_gainLinear;
+    m_targetGainLinear.store(m_gainLinear, std::memory_order_relaxed);
     
     // Reset clip indicator
     m_clipDetected.store(false);
@@ -181,13 +181,14 @@ bool MultichannelRecorder::startRecordingFromMonitoring(const std::string& outpu
     m_diskWriteThread = std::thread(&MultichannelRecorder::diskWriteThreadFunction, this);
     
     // Reset sample counter for this recording
-    m_totalSamples = 0;
+    m_totalSamples.store(0, std::memory_order_relaxed);
     
     // Log current gain state when starting recording
-    float currentGainDb = 20.0f * std::log10(m_gainLinear);
-    float targetGainDb = 20.0f * std::log10(m_targetGainLinear);
+    float currentGainDb = 20.0f * std::log10(std::max(m_gainLinear, 1e-6f));
+    float targetGainLinear = m_targetGainLinear.load(std::memory_order_relaxed);
+    float targetGainDb = 20.0f * std::log10(std::max(targetGainLinear, 1e-6f));
     LOGI("Starting recording - Current gain: %.1f dB (linear: %.3f), Target: %.1f dB (linear: %.3f)", 
-         currentGainDb, m_gainLinear, targetGainDb, m_targetGainLinear);
+        currentGainDb, m_gainLinear, targetGainDb, targetGainLinear);
     
     // Activate recording (monitoring thread will now write to ring buffer)
     m_isRecording.store(true);
@@ -222,13 +223,14 @@ bool MultichannelRecorder::startRecordingFromMonitoringWithFd(int fd, const std:
     m_diskWriteThread = std::thread(&MultichannelRecorder::diskWriteThreadFunction, this);
     
     // Reset sample counter for this recording
-    m_totalSamples = 0;
+    m_totalSamples.store(0, std::memory_order_relaxed);
     
     // Log current gain state when starting recording
-    float currentGainDb = 20.0f * std::log10(m_gainLinear);
-    float targetGainDb = 20.0f * std::log10(m_targetGainLinear);
+    float currentGainDb = 20.0f * std::log10(std::max(m_gainLinear, 1e-6f));
+    float targetGainLinear = m_targetGainLinear.load(std::memory_order_relaxed);
+    float targetGainDb = 20.0f * std::log10(std::max(targetGainLinear, 1e-6f));
     LOGI("Starting recording - Current gain: %.1f dB (linear: %.3f), Target: %.1f dB (linear: %.3f)", 
-         currentGainDb, m_gainLinear, targetGainDb, m_targetGainLinear);
+        currentGainDb, m_gainLinear, targetGainDb, targetGainLinear);
     
     // Activate recording (monitoring thread will now write to ring buffer)
     m_isRecording.store(true);
@@ -283,7 +285,8 @@ bool MultichannelRecorder::stopRecording() {
         m_ringBuffer = nullptr;
     }
     
-    LOGI("Recording stopped. Total samples: %zu. Returned to IDLE.", m_totalSamples);
+    LOGI("Recording stopped. Total samples: %zu. Returned to IDLE.",
+        static_cast<size_t>(m_totalSamples.load(std::memory_order_relaxed)));
     return true;
 }
 
@@ -346,7 +349,7 @@ void MultichannelRecorder::recordingThreadFunction() {
 
             // Update total samples
             size_t samplesInBuffer = bytesRead / (CHANNEL_COUNT * BYTES_PER_SAMPLE);
-            m_totalSamples += samplesInBuffer;
+            m_totalSamples.fetch_add(static_cast<uint64_t>(samplesInBuffer), std::memory_order_relaxed);
             
             // Write to ring buffer ONLY if recording (not just monitoring)
             if (m_isRecording.load() && m_ringBuffer) {
@@ -473,22 +476,14 @@ void MultichannelRecorder::processAudioBuffer(const uint8_t* buffer, size_t buff
     
     // Smooth gain interpolation: gradually move current gain toward target
     // This prevents clicks/pops when user adjusts gain during recording
-    if (std::abs(m_gainLinear - m_targetGainLinear) > 0.0001f) {
+    const float targetGain = m_targetGainLinear.load(std::memory_order_relaxed);
+    if (std::abs(m_gainLinear - targetGain) > 0.0001f) {
         // Exponential smoothing: move current toward target
-        float oldGain = m_gainLinear;
-        m_gainLinear += (m_targetGainLinear - m_gainLinear) * m_gainSmoothingCoeff;
-        
-        // Log gain changes for debugging
-        static int logCounter = 0;
-        if (logCounter++ % 100 == 0) {  // Log every 100th buffer
-            float gainDb = 20.0f * std::log10(m_gainLinear);
-            LOGI("Gain interpolating: %.2f dB (linear: %.3f -> %.3f, target: %.3f)", 
-                 gainDb, oldGain, m_gainLinear, m_targetGainLinear);
-        }
+        m_gainLinear += (targetGain - m_gainLinear) * m_gainSmoothingCoeff;
         
         // Snap to target when very close to avoid endless tiny updates
-        if (std::abs(m_gainLinear - m_targetGainLinear) < 0.0001f) {
-            m_gainLinear = m_targetGainLinear;
+        if (std::abs(m_gainLinear - targetGain) < 0.0001f) {
+            m_gainLinear = targetGain;
         }
     }
     
@@ -571,11 +566,12 @@ float MultichannelRecorder::normalizeLevel(int32_t sample) {
 }
 
 double MultichannelRecorder::getRecordingDuration() const {
-    if (m_totalSamples == 0 || m_sampleRate <= 0) {
+    const uint64_t totalSamples = m_totalSamples.load(std::memory_order_relaxed);
+    if (totalSamples == 0 || m_sampleRate <= 0) {
         return 0.0;
     }
     
-    return static_cast<double>(m_totalSamples) / static_cast<double>(m_sampleRate);
+    return static_cast<double>(totalSamples) / static_cast<double>(m_sampleRate);
 }
 
 void MultichannelRecorder::resetClipIndicator() {
@@ -586,9 +582,10 @@ void MultichannelRecorder::setGain(float gainDb) {
     // Convert dB to linear gain: linear = 10^(dB/20)
     // Clamp gainDb to safe range [0, 64] dB
     gainDb = std::max(0.0f, std::min(64.0f, gainDb));
-    m_targetGainLinear = std::pow(10.0f, gainDb / 20.0f);
+    const float targetLinear = std::pow(10.0f, gainDb / 20.0f);
+    m_targetGainLinear.store(targetLinear, std::memory_order_relaxed);
     
-    LOGI("Target gain set to %.1f dB (linear: %.2f)", gainDb, m_targetGainLinear);
+    LOGI("Target gain set to %.1f dB (linear: %.2f)", gainDb, targetLinear);
 }
 
 bool MultichannelRecorder::startRecordingInternal(
@@ -641,7 +638,7 @@ bool MultichannelRecorder::startRecordingInternal(
 
     LOGI("Recording buffer size configured: %zu bytes (frameSize=%zu)", m_bufferSize, frameSize);
 
-    m_totalSamples = 0;
+    m_totalSamples.store(0, std::memory_order_relaxed);
     m_startTime = std::chrono::high_resolution_clock::now();
     m_clipDetected.store(false);
 

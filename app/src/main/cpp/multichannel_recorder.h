@@ -5,6 +5,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <cstdint>
 #include <functional>
 #include <condition_variable>
 #include "usb_audio_interface.h"
@@ -39,7 +40,7 @@ public:
     float getPeakLevel() const { return m_peakLevel.load(); }
     
     // Get recording statistics
-    size_t getTotalSamplesRecorded() const { return m_totalSamples; }
+    size_t getTotalSamplesRecorded() const { return static_cast<size_t>(m_totalSamples.load(std::memory_order_relaxed)); }
     double getRecordingDuration() const;
     
 private:
@@ -59,16 +60,16 @@ private:
     std::mutex m_diskThreadMutex;
     
     // Recording statistics
-    size_t m_totalSamples;
+    std::atomic<uint64_t> m_totalSamples;
     std::chrono::high_resolution_clock::time_point m_startTime;
     int m_sampleRate;
     std::atomic<bool> m_clipDetected;
     
     // Gain and level metering
     std::atomic<float> m_peakLevel;
-    float m_gainLinear;          // Current gain (smoothly interpolated)
-    float m_targetGainLinear;    // Target gain set by user
-    float m_gainSmoothingCoeff;  // Smoothing coefficient (calculated from sample rate)
+    float m_gainLinear;              // Current gain (smoothly interpolated by audio thread)
+    std::atomic<float> m_targetGainLinear;  // Target gain set by UI thread
+    float m_gainSmoothingCoeff;      // Smoothing coefficient (calculated from sample rate)
     
     // Recording parameters
     static const size_t DEFAULT_BUFFER_SIZE = 8192;  // Bytes
