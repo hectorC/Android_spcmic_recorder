@@ -25,9 +25,19 @@ MultichannelRecorder::MultichannelRecorder(USBAudioInterface* audioInterface)
     , m_ringBuffer(nullptr)
     , m_diskThreadRunning(false)
     , m_peakLevel(0.0f)
-    , m_gainLinear(1.0f) {
+    , m_gainLinear(1.0f)
+    , m_targetGainLinear(1.0f)
+    , m_gainSmoothingCoeff(0.0f) {
     
-    LOGI("MultichannelRecorder created for %d channels", CHANNEL_COUNT);
+    // Calculate gain smoothing coefficient for ~50ms transition time
+    // coefficient = 1 - exp(-bufferDuration / smoothingTime)
+    // Assuming typical buffer: 1024 samples = ~21ms @ 48kHz
+    const float typicalBufferDuration = 1024.0f / static_cast<float>(m_sampleRate);
+    const float smoothingTime = 0.05f;  // 50ms target smoothing time
+    m_gainSmoothingCoeff = 1.0f - std::exp(-typicalBufferDuration / smoothingTime);
+    
+    LOGI("MultichannelRecorder created for %d channels, gain smoothing coeff: %.4f", 
+         CHANNEL_COUNT, m_gainSmoothingCoeff);
 }
 
 MultichannelRecorder::~MultichannelRecorder() {
@@ -65,8 +75,11 @@ MultichannelRecorder::~MultichannelRecorder() {
 }
 
 bool MultichannelRecorder::startRecording(const std::string& outputPath, float gainDb) {
-    // Set gain before starting recording
-    setGain(gainDb);
+    // Set gain before starting recording - initialize both current and target
+    // to avoid an initial transition ramp
+    gainDb = std::max(0.0f, std::min(64.0f, gainDb));
+    m_gainLinear = std::pow(10.0f, gainDb / 20.0f);
+    m_targetGainLinear = m_gainLinear;
     
     return startRecordingInternal(
         outputPath,
@@ -77,8 +90,11 @@ bool MultichannelRecorder::startRecording(const std::string& outputPath, float g
 }
 
 bool MultichannelRecorder::startRecordingWithFd(int fd, const std::string& displayPath, float gainDb) {
-    // Set gain before starting recording
-    setGain(gainDb);
+    // Set gain before starting recording - initialize both current and target
+    // to avoid an initial transition ramp
+    gainDb = std::max(0.0f, std::min(64.0f, gainDb));
+    m_gainLinear = std::pow(10.0f, gainDb / 20.0f);
+    m_targetGainLinear = m_gainLinear;
     
     return startRecordingInternal(
         displayPath,
@@ -273,12 +289,25 @@ void MultichannelRecorder::diskWriteThreadFunction() {
 
 void MultichannelRecorder::processAudioBuffer(const uint8_t* buffer, size_t bufferSize) {
     // This function processes audio in real-time:
-    // 1. Apply gain to all channels
-    // 2. Track peak level across all channels for metering
-    // 3. Modify buffer in-place before it goes to disk
+    // 1. Smooth gain transitions (interpolate current gain toward target)
+    // 2. Apply gain to all channels
+    // 3. Track peak level across all channels for metering
+    // 4. Modify buffer in-place before it goes to disk
     
     if (bufferSize == 0 || buffer == nullptr) {
         return;
+    }
+    
+    // Smooth gain interpolation: gradually move current gain toward target
+    // This prevents clicks/pops when user adjusts gain during recording
+    if (std::abs(m_gainLinear - m_targetGainLinear) > 0.0001f) {
+        // Exponential smoothing: move current toward target
+        m_gainLinear += (m_targetGainLinear - m_gainLinear) * m_gainSmoothingCoeff;
+        
+        // Snap to target when very close to avoid endless tiny updates
+        if (std::abs(m_gainLinear - m_targetGainLinear) < 0.0001f) {
+            m_gainLinear = m_targetGainLinear;
+        }
     }
     
     // Process samples in-place (gain application + level detection)
@@ -374,9 +403,9 @@ void MultichannelRecorder::setGain(float gainDb) {
     // Convert dB to linear gain: linear = 10^(dB/20)
     // Clamp gainDb to safe range [0, 64] dB
     gainDb = std::max(0.0f, std::min(64.0f, gainDb));
-    m_gainLinear = std::pow(10.0f, gainDb / 20.0f);
+    m_targetGainLinear = std::pow(10.0f, gainDb / 20.0f);
     
-    LOGI("Gain set to %.1f dB (linear: %.2f)", gainDb, m_gainLinear);
+    LOGI("Target gain set to %.1f dB (linear: %.2f)", gainDb, m_targetGainLinear);
 }
 
 bool MultichannelRecorder::startRecordingInternal(

@@ -55,7 +55,9 @@ private:
     
     // Gain and level metering
     std::atomic<float> m_peakLevel;
-    float m_gainLinear;
+    float m_gainLinear;          // Current gain (smoothly interpolated)
+    float m_targetGainLinear;    // Target gain set by user
+    float m_gainSmoothingCoeff;  // Smoothing coefficient (calculated from sample rate)
     
     // Recording parameters
     static const size_t DEFAULT_BUFFER_SIZE = 8192;  // Bytes
