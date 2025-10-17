@@ -17,6 +17,7 @@
 MultichannelRecorder::MultichannelRecorder(USBAudioInterface* audioInterface)
     : m_audioInterface(audioInterface)
     , m_wavWriter(nullptr)
+    , m_isMonitoring(false)
     , m_isRecording(false)
     , m_totalSamples(0)
     , m_sampleRate(audioInterface ? audioInterface->getEffectiveSampleRateRounded() : 48000)
@@ -41,9 +42,12 @@ MultichannelRecorder::MultichannelRecorder(USBAudioInterface* audioInterface)
 }
 
 MultichannelRecorder::~MultichannelRecorder() {
-    // First, ensure recording is stopped and threads are signaled.
+    // First, ensure recording and monitoring are stopped and threads are signaled.
     if (m_isRecording.load()) {
         m_isRecording.store(false);
+    }
+    if (m_isMonitoring.load()) {
+        m_isMonitoring.store(false);
     }
     if (m_diskThreadRunning.load()) {
         m_diskThreadRunning.store(false);
@@ -74,74 +78,242 @@ MultichannelRecorder::~MultichannelRecorder() {
     LOGI("MultichannelRecorder destroyed");
 }
 
-bool MultichannelRecorder::startRecording(const std::string& outputPath, float gainDb) {
-    // Set gain before starting recording - initialize both current and target
-    // to avoid an initial transition ramp
+bool MultichannelRecorder::startMonitoring(float gainDb) {
+    if (m_isMonitoring.load()) {
+        LOGE("Already monitoring or recording");
+        return false;
+    }
+    
+    if (!m_audioInterface) {
+        LOGE("No audio interface available");
+        return false;
+    }
+    
+    // Initialize gain (both current and target to avoid initial ramp)
     gainDb = std::max(0.0f, std::min(64.0f, gainDb));
     m_gainLinear = std::pow(10.0f, gainDb / 20.0f);
     m_targetGainLinear = m_gainLinear;
     
-    return startRecordingInternal(
-        outputPath,
-        [this, &outputPath](WAVWriter* writer) {
-            return writer->open(outputPath, m_sampleRate, CHANNEL_COUNT, BYTES_PER_SAMPLE * 8);
-        }
-    );
+    // Reset clip indicator
+    m_clipDetected.store(false);
+    m_peakLevel.store(0.0f);
+    
+    // Start USB streaming
+    if (!m_audioInterface->startStreaming()) {
+        LOGE("Failed to start USB audio streaming");
+        return false;
+    }
+    
+    // Get actual sample rate from device
+    int effectiveRate = m_audioInterface->getEffectiveSampleRateRounded();
+    if (effectiveRate > 0) {
+        m_sampleRate = effectiveRate;
+    }
+    
+    // Calculate proper buffer size (frame-aligned)
+    const size_t frameSize = static_cast<size_t>(CHANNEL_COUNT) * BYTES_PER_SAMPLE;
+    size_t recommendedSize = m_audioInterface->getRecommendedBufferSize();
+    if (recommendedSize == 0) {
+        recommendedSize = DEFAULT_BUFFER_SIZE;
+    }
+    if (recommendedSize < frameSize) {
+        recommendedSize = frameSize;
+    }
+    // Ensure buffer size is a multiple of frame size
+    if (recommendedSize % frameSize != 0) {
+        recommendedSize = ((recommendedSize + frameSize - 1) / frameSize) * frameSize;
+    }
+    m_bufferSize = recommendedSize;
+    
+    LOGI("Starting monitoring (sampleRate=%d Hz, gain=%.1f dB, bufferSize=%zu bytes)", 
+         m_sampleRate, gainDb, m_bufferSize);
+    
+    // Start streaming thread (no WAV writer, no ring buffer)
+    m_isMonitoring.store(true);
+    m_recordingThread = std::thread(&MultichannelRecorder::recordingThreadFunction, this);
+    
+    return true;
+}
+
+bool MultichannelRecorder::startRecording(const std::string& outputPath, float gainDb) {
+    // Must be monitoring to start recording (enforces IDLE->MONITORING->RECORDING flow)
+    if (!m_isMonitoring.load()) {
+        LOGE("Cannot start recording: not monitoring. Must call startMonitoring() first.");
+        return false;
+    }
+    
+    return startRecordingFromMonitoring(outputPath);
 }
 
 bool MultichannelRecorder::startRecordingWithFd(int fd, const std::string& displayPath, float gainDb) {
-    // Set gain before starting recording - initialize both current and target
-    // to avoid an initial transition ramp
-    gainDb = std::max(0.0f, std::min(64.0f, gainDb));
-    m_gainLinear = std::pow(10.0f, gainDb / 20.0f);
-    m_targetGainLinear = m_gainLinear;
+    // Must be monitoring to start recording (enforces IDLE->MONITORING->RECORDING flow)
+    if (!m_isMonitoring.load()) {
+        LOGE("Cannot start recording: not monitoring. Must call startMonitoring() first.");
+        return false;
+    }
     
-    return startRecordingInternal(
-        displayPath,
-        [this, fd](WAVWriter* writer) {
-            return writer->openFromFd(fd, m_sampleRate, CHANNEL_COUNT, BYTES_PER_SAMPLE * 8);
-        }
-    );
+    return startRecordingFromMonitoringWithFd(fd, displayPath);
+}
+
+bool MultichannelRecorder::startRecordingFromMonitoring(const std::string& outputPath) {
+    if (!m_isMonitoring.load() || m_isRecording.load()) {
+        LOGE("Cannot start recording from monitoring: monitoring=%d, recording=%d",
+             m_isMonitoring.load(), m_isRecording.load());
+        return false;
+    }
+    
+    LOGI("Transitioning from monitoring to recording: %s", outputPath.c_str());
+    
+    // Create and open WAV writer
+    m_wavWriter = new WAVWriter();
+    if (!m_wavWriter->open(outputPath, m_sampleRate, CHANNEL_COUNT, BYTES_PER_SAMPLE * 8)) {
+        LOGE("Failed to open WAV file for recording transition");
+        delete m_wavWriter;
+        m_wavWriter = nullptr;
+        return false;
+    }
+    
+    // Create ring buffer for disk writes
+    m_ringBuffer = new LockFreeRingBuffer(RING_BUFFER_SIZE);
+    
+    // Start disk write thread
+    m_diskThreadRunning.store(true);
+    m_diskWriteThread = std::thread(&MultichannelRecorder::diskWriteThreadFunction, this);
+    
+    // Reset sample counter for this recording
+    m_totalSamples = 0;
+    
+    // Log current gain state when starting recording
+    float currentGainDb = 20.0f * std::log10(m_gainLinear);
+    float targetGainDb = 20.0f * std::log10(m_targetGainLinear);
+    LOGI("Starting recording - Current gain: %.1f dB (linear: %.3f), Target: %.1f dB (linear: %.3f)", 
+         currentGainDb, m_gainLinear, targetGainDb, m_targetGainLinear);
+    
+    // Activate recording (monitoring thread will now write to ring buffer)
+    m_isRecording.store(true);
+    
+    LOGI("Recording started from monitoring mode");
+    return true;
+}
+
+bool MultichannelRecorder::startRecordingFromMonitoringWithFd(int fd, const std::string& displayPath) {
+    if (!m_isMonitoring.load() || m_isRecording.load()) {
+        LOGE("Cannot start recording from monitoring: monitoring=%d, recording=%d",
+             m_isMonitoring.load(), m_isRecording.load());
+        return false;
+    }
+    
+    LOGI("Transitioning from monitoring to recording (FD): %s", displayPath.c_str());
+    
+    // Create and open WAV writer with file descriptor
+    m_wavWriter = new WAVWriter();
+    if (!m_wavWriter->openFromFd(fd, m_sampleRate, CHANNEL_COUNT, BYTES_PER_SAMPLE * 8)) {
+        LOGE("Failed to open WAV file from FD for recording transition");
+        delete m_wavWriter;
+        m_wavWriter = nullptr;
+        return false;
+    }
+    
+    // Create ring buffer for disk writes
+    m_ringBuffer = new LockFreeRingBuffer(RING_BUFFER_SIZE);
+    
+    // Start disk write thread
+    m_diskThreadRunning.store(true);
+    m_diskWriteThread = std::thread(&MultichannelRecorder::diskWriteThreadFunction, this);
+    
+    // Reset sample counter for this recording
+    m_totalSamples = 0;
+    
+    // Log current gain state when starting recording
+    float currentGainDb = 20.0f * std::log10(m_gainLinear);
+    float targetGainDb = 20.0f * std::log10(m_targetGainLinear);
+    LOGI("Starting recording - Current gain: %.1f dB (linear: %.3f), Target: %.1f dB (linear: %.3f)", 
+         currentGainDb, m_gainLinear, targetGainDb, m_targetGainLinear);
+    
+    // Activate recording (monitoring thread will now write to ring buffer)
+    m_isRecording.store(true);
+    
+    LOGI("Recording started from monitoring mode (FD)");
+    return true;
 }
 
 bool MultichannelRecorder::stopRecording() {
     if (!m_isRecording.load()) {
         // If not recording, there's nothing to do.
-        // This prevents trying to stop a recorder that's already been stopped.
         return true;
     }
     
-    LOGI("Stopping recording threads and flushing data...");
+    LOGI("Stopping recording and monitoring (returning to IDLE)...");
     
-    // 1. Signal recording thread to stop.
+    // 1. Stop recording
     m_isRecording.store(false);
     
-    // 2. Wait for the USB reading thread to finish its current loop and exit.
+    // 2. Stop monitoring (this will stop the USB thread)
+    m_isMonitoring.store(false);
+    
+    // 3. Wait for monitoring/USB thread to exit
     if (m_recordingThread.joinable()) {
         m_recordingThread.join();
     }
     
-    // 3. Signal the disk write thread that no more data is coming.
+    // 4. Signal the disk write thread that no more data is coming
     m_diskThreadRunning.store(false);
-    m_diskThreadCV.notify_one(); // Wake it up in case it's waiting on the condition variable.
+    m_diskThreadCV.notify_one();
     
-    // 4. Wait for the disk write thread to finish flushing the ring buffer and exit.
+    // 5. Wait for the disk write thread to finish flushing the ring buffer
     if (m_diskWriteThread.joinable()) {
         m_diskWriteThread.join();
     }
     
-    // 5. Stop the underlying USB audio streaming.
+    // 6. Stop USB streaming
     if (m_audioInterface) {
         m_audioInterface->stopStreaming();
     }
     
-    // 6. Close the WAV file, which writes the final header.
+    // 7. Close the WAV file (writes final header)
     if (m_wavWriter) {
         m_wavWriter->close();
-        // The object itself will be deleted by the owner (JNI layer).
+        delete m_wavWriter;
+        m_wavWriter = nullptr;
     }
     
-    LOGI("Recording stopped and flushed. Total samples: %zu", m_totalSamples);
+    // 8. Clean up ring buffer
+    if (m_ringBuffer) {
+        delete m_ringBuffer;
+        m_ringBuffer = nullptr;
+    }
+    
+    LOGI("Recording stopped. Total samples: %zu. Returned to IDLE.", m_totalSamples);
+    return true;
+}
+
+bool MultichannelRecorder::stopMonitoring() {
+    if (!m_isMonitoring.load()) {
+        // Not monitoring, nothing to do
+        return true;
+    }
+    
+    LOGI("Stopping monitoring...");
+    
+    // If recording is active, stop it first
+    if (m_isRecording.load()) {
+        stopRecording();
+    }
+    
+    // Stop monitoring thread
+    m_isMonitoring.store(false);
+    
+    // Wait for monitoring/USB thread to exit
+    if (m_recordingThread.joinable()) {
+        m_recordingThread.join();
+    }
+    
+    // Stop USB streaming
+    if (m_audioInterface) {
+        m_audioInterface->stopStreaming();
+    }
+    
+    LOGI("Monitoring stopped");
     return true;
 }
 
@@ -157,7 +329,7 @@ void MultichannelRecorder::recordingThreadFunction() {
     size_t totalBytesRead = 0;
     size_t bufferOverflows = 0;
     
-    while (m_isRecording.load()) {
+    while (m_isMonitoring.load()) {  // Changed from m_isRecording
         // Read audio data from USB interface
         size_t bytesRead = m_audioInterface->readAudioData(buffer.data(), buffer.size());
         
@@ -168,15 +340,16 @@ void MultichannelRecorder::recordingThreadFunction() {
             consecutiveEmptyReads = 0;
             totalBytesRead += bytesRead;
             
-            // Process the audio buffer (level meters, clip detection)
+            // Process the audio buffer (level meters, clip detection, gain)
+            // This ALWAYS happens whether monitoring or recording
             processAudioBuffer(buffer.data(), bytesRead);
 
             // Update total samples
             size_t samplesInBuffer = bytesRead / (CHANNEL_COUNT * BYTES_PER_SAMPLE);
             m_totalSamples += samplesInBuffer;
             
-            // Write to ring buffer (lock-free, non-blocking)
-            if (m_ringBuffer) {
+            // Write to ring buffer ONLY if recording (not just monitoring)
+            if (m_isRecording.load() && m_ringBuffer) {
                 const size_t availableSpace = m_ringBuffer->getAvailableSpace();
                 if (bytesRead > availableSpace) {
                     LOGE("Ring buffer pressure: incoming=%zu, space=%zu (overflow #%zu)",
@@ -302,7 +475,16 @@ void MultichannelRecorder::processAudioBuffer(const uint8_t* buffer, size_t buff
     // This prevents clicks/pops when user adjusts gain during recording
     if (std::abs(m_gainLinear - m_targetGainLinear) > 0.0001f) {
         // Exponential smoothing: move current toward target
+        float oldGain = m_gainLinear;
         m_gainLinear += (m_targetGainLinear - m_gainLinear) * m_gainSmoothingCoeff;
+        
+        // Log gain changes for debugging
+        static int logCounter = 0;
+        if (logCounter++ % 100 == 0) {  // Log every 100th buffer
+            float gainDb = 20.0f * std::log10(m_gainLinear);
+            LOGI("Gain interpolating: %.2f dB (linear: %.3f -> %.3f, target: %.3f)", 
+                 gainDb, oldGain, m_gainLinear, m_targetGainLinear);
+        }
         
         // Snap to target when very close to avoid endless tiny updates
         if (std::abs(m_gainLinear - m_targetGainLinear) < 0.0001f) {
@@ -338,7 +520,8 @@ void MultichannelRecorder::processAudioBuffer(const uint8_t* buffer, size_t buff
                 // Check for clipping BEFORE clamping (detect if gain caused clipping)
                 constexpr float MAX_24BIT = 8388607.0f;  // 2^23 - 1
                 constexpr float MIN_24BIT = -8388608.0f; // -2^23
-                if (sampleFloat >= MAX_24BIT || sampleFloat <= MIN_24BIT) {
+                // Use > and < (not >= and <=) to catch any overflow before clamping
+                if (sampleFloat > MAX_24BIT || sampleFloat < MIN_24BIT) {
                     m_clipDetected.store(true, std::memory_order_relaxed);
                 }
                 

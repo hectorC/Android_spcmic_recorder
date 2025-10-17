@@ -171,11 +171,7 @@ class RecordFragment : Fragment() {
     private fun setupUI() {
         binding.apply {
             btnRecord.setOnClickListener {
-                if (viewModel.isRecording.value == true) {
-                    stopRecording()
-                } else {
-                    startRecording()
-                }
+                handleRecordButtonClick()
             }
             
             btnRefreshDevices.setOnClickListener {
@@ -272,7 +268,7 @@ class RecordFragment : Fragment() {
     }
 
     private fun updateLevelMeter(level: Float) {
-        // level is 0.0 to 1.0, convert to dBFS
+        // level is 0.0 to 1.0 (linear amplitude), convert to dBFS for display
         // dBFS = 20 * log10(level), with 0.0 mapped to -∞ dB and 1.0 mapped to 0 dB
         val dbfs = if (level > 0.0001f) {
             20.0f * kotlin.math.log10(level)
@@ -283,24 +279,64 @@ class RecordFragment : Fragment() {
         // Update text to show dBFS
         binding.tvLevelPercent.text = String.format("%.1f dBFS", dbfs)
         
+        // Professional logarithmic meter scale (like Pro Tools, Logic, etc.)
+        // Map dBFS range to bar width: -60 dB = 0%, 0 dB = 100%
+        // This gives the characteristic "sensitive at low levels, compressed at high levels" behavior
+        val dbMin = -60.0f  // Minimum dB to display
+        val dbMax = 0.0f    // Maximum dB (full scale)
+        val normalizedDb = (dbfs - dbMin) / (dbMax - dbMin)  // Map -60..0 dB to 0..1
+        val barLevel = normalizedDb.coerceIn(0.0f, 1.0f)     // Clamp to valid range
+        
         // Update bar width (level grows from left)
         val barContainer = binding.levelMeterBar.parent as? android.widget.FrameLayout
         barContainer?.let { container ->
             val params = binding.levelMeterBar.layoutParams
-            params.width = (container.width * level).toInt()
+            params.width = (container.width * barLevel).toInt()
             binding.levelMeterBar.layoutParams = params
         }
         
-        // Change color based on level (green -> yellow -> red)
+        // Change color based on dB level (professional thresholds)
         // If clipping, always show red regardless of current level
         val isClipping = viewModel.isClipping.value == true
         val color = when {
             isClipping -> ContextCompat.getColor(requireContext(), R.color.clip_indicator_alert) // Red when clipping
-            level < 0.7f -> ContextCompat.getColor(requireContext(), R.color.brand_primary) // Green
-            level < 0.9f -> ContextCompat.getColor(requireContext(), android.R.color.holo_orange_light) // Yellow
-            else -> ContextCompat.getColor(requireContext(), R.color.clip_indicator_alert) // Red at high levels
+            dbfs < -18.0f -> ContextCompat.getColor(requireContext(), R.color.brand_primary) // Green (safe zone)
+            dbfs < -6.0f -> ContextCompat.getColor(requireContext(), android.R.color.holo_orange_light) // Yellow (caution zone)
+            else -> ContextCompat.getColor(requireContext(), R.color.clip_indicator_alert) // Red (danger zone, near clipping)
         }
         binding.levelMeterBar.setBackgroundColor(color)
+    }
+
+    private fun updateUIForState(state: RecorderState) {
+        when (state) {
+            RecorderState.IDLE -> {
+                binding.btnRecord.text = "START MONITORING"
+                binding.btnRecord.setIconResource(R.drawable.ic_levels)
+                binding.btnRecord.isEnabled = viewModel.isUSBDeviceConnected.value == true
+                // Light purple tint for visibility against dark background
+                binding.btnRecord.backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(requireContext(), R.color.brand_primary_light)
+                )
+            }
+            RecorderState.MONITORING -> {
+                binding.btnRecord.text = "START RECORDING"
+                binding.btnRecord.setIconResource(R.drawable.ic_microphone)
+                binding.btnRecord.isEnabled = true
+                // Green tint for "ready to record"
+                binding.btnRecord.backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(requireContext(), R.color.clip_indicator_idle)
+                )
+            }
+            RecorderState.RECORDING -> {
+                binding.btnRecord.text = "STOP RECORDING"
+                binding.btnRecord.setIconResource(R.drawable.ic_stop)
+                binding.btnRecord.isEnabled = true
+                // Red tint for "recording active"
+                binding.btnRecord.backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(requireContext(), R.color.clip_indicator_alert)
+                )
+            }
+        }
     }
 
     private fun initializeStorageLocation() {
@@ -311,17 +347,16 @@ class RecordFragment : Fragment() {
     }
     
     private fun observeViewModel() {
+        // Observe the new state machine
+        viewModel.recorderState.observe(viewLifecycleOwner) { state ->
+            updateUIForState(state)
+        }
+        
+        // Keep legacy isRecording observer for backward compatibility with animations
         viewModel.isRecording.observe(viewLifecycleOwner) { isRecording ->
-            binding.btnRecord.text = if (isRecording) getString(R.string.record_button_stop) else getString(R.string.record_button_start)
-            binding.btnRecord.isEnabled = viewModel.isUSBDeviceConnected.value == true
-            
             // Update timer color and card appearance
             val colorRes = if (isRecording) R.color.timecode_recording else R.color.brand_on_surface
             binding.tvRecordingTime.setTextColor(ContextCompat.getColor(requireContext(), colorRes))
-            
-            // Update button icon
-            val iconRes = if (isRecording) R.drawable.ic_stop else R.drawable.ic_microphone
-            binding.btnRecord.setIconResource(iconRes)
             
             // Apply recording animations
             if (isRecording) {
@@ -575,6 +610,33 @@ class RecordFragment : Fragment() {
             }
         }
         return false
+    }
+    
+    private fun handleRecordButtonClick() {
+        when (viewModel.recorderState.value) {
+            RecorderState.IDLE -> {
+                // Start monitoring (USB streaming, show levels, no file writing)
+                val gainDb = viewModel.gainDb.value ?: 0f
+                if (audioRecorder.startMonitoring(gainDb)) {
+                    viewModel.startMonitoring()
+                    Log.i("RecordFragment", "Monitoring started")
+                    
+                    // Start level meter polling
+                    startLevelMeterPolling()
+                } else {
+                    Toast.makeText(requireContext(), "Failed to start monitoring", Toast.LENGTH_SHORT).show()
+                }
+            }
+            RecorderState.MONITORING -> {
+                // Start recording (add file writing to existing USB stream)
+                startRecording()
+            }
+            RecorderState.RECORDING -> {
+                // Stop everything (return to IDLE)
+                stopRecording()
+            }
+            else -> {}
+        }
     }
     
     private fun startRecording() {

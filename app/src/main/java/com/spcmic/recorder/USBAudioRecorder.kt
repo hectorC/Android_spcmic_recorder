@@ -65,6 +65,8 @@ class USBAudioRecorder(
     external fun initializeNativeAudio(deviceFd: Int, sampleRate: Int, channelCount: Int): Boolean
     external fun startRecordingNative(outputPath: String, gainDb: Float): Boolean
     external fun startRecordingNativeWithFd(fd: Int, absolutePath: String, gainDb: Float): Boolean
+    external fun startRecordingFromMonitoringNative(outputPath: String): Boolean
+    external fun startRecordingFromMonitoringNativeWithFd(fd: Int, absolutePath: String): Boolean
     external fun stopRecordingNative(): Boolean
     external fun releaseNativeAudio()
     external fun getSupportedSampleRatesNative(): IntArray?
@@ -77,6 +79,10 @@ class USBAudioRecorder(
     external fun resetClipIndicatorNative()
     external fun setGainNative(gainDb: Float)
     external fun getPeakLevelNative(): Float
+    external fun startMonitoringNative(gainDb: Float): Boolean
+    external fun stopMonitoringNative(): Boolean
+    external fun isMonitoringNative(): Boolean
+    external fun isRecordingNative(): Boolean
     
     companion object {
         private const val DEFAULT_SAMPLE_RATE = 48000
@@ -246,9 +252,12 @@ class USBAudioRecorder(
             return false
         }
         
-        // Get current gain setting to pass to recorder
+        // Check if we're in monitoring mode
+        val inMonitoringMode = isMonitoring()
+        android.util.Log.i("USBAudioRecorder", "In monitoring mode: $inMonitoringMode")
+        
+        // Get current gain setting (only needed if starting from IDLE)
         val currentGain = viewModel.gainDb.value ?: 0f
-        android.util.Log.i("USBAudioRecorder", "Starting recording with gain: $currentGain dB")
         
         var pendingTarget: StorageLocationManager.RecordingTarget? = null
         try {
@@ -266,12 +275,24 @@ class USBAudioRecorder(
             val success = when {
                 target.outputFile != null -> {
                     android.util.Log.i("USBAudioRecorder", "Starting recording to: ${target.outputFile.absolutePath}")
-                    startRecordingNative(target.outputFile.absolutePath, currentGain)
+                    if (inMonitoringMode) {
+                        // Transition from monitoring to recording
+                        startRecordingFromMonitoringNative(target.outputFile.absolutePath)
+                    } else {
+                        // Start from IDLE (shouldn't happen with new state machine, but keep for safety)
+                        startRecordingNative(target.outputFile.absolutePath, currentGain)
+                    }
                 }
                 target.parcelFileDescriptor != null -> {
                     activeRecordingPfd = target.parcelFileDescriptor
                     android.util.Log.i("USBAudioRecorder", "Starting recording via SAF to: ${target.displayLocation}")
-                    startRecordingNativeWithFd(activeRecordingPfd!!.fd, target.displayLocation, currentGain)
+                    if (inMonitoringMode) {
+                        // Transition from monitoring to recording
+                        startRecordingFromMonitoringNativeWithFd(activeRecordingPfd!!.fd, target.displayLocation)
+                    } else {
+                        // Start from IDLE (shouldn't happen with new state machine, but keep for safety)
+                        startRecordingNativeWithFd(activeRecordingPfd!!.fd, target.displayLocation, currentGain)
+                    }
                 }
                 else -> {
                     android.util.Log.e("USBAudioRecorder", "Recording target missing backing file or descriptor")
@@ -285,12 +306,14 @@ class USBAudioRecorder(
                 viewModel.setRecordingFileName(fileName)
                 android.util.Log.i("USBAudioRecorder", "Started recording to: ${target.displayLocation}")
                 
-                // Start recording monitoring job with high priority
-                recordingJob = CoroutineScope(Dispatchers.IO).launch {
-                    // Set thread priority to URGENT_AUDIO for real-time performance
-                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
-                    android.util.Log.i("USBAudioRecorder", "Set recording thread priority to URGENT_AUDIO")
-                    monitorRecording()
+                // Start recording monitoring job with high priority (only if not already monitoring)
+                if (!inMonitoringMode) {
+                    recordingJob = CoroutineScope(Dispatchers.IO).launch {
+                        // Set thread priority to URGENT_AUDIO for real-time performance
+                        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+                        android.util.Log.i("USBAudioRecorder", "Set recording thread priority to URGENT_AUDIO")
+                        monitorRecording()
+                    }
                 }
             } else {
                 android.util.Log.e("USBAudioRecorder", "Failed to start native recording")
@@ -412,6 +435,61 @@ class USBAudioRecorder(
             getPeakLevelNative()
         } else {
             0f
+        }
+    }
+
+    fun startMonitoring(gainDb: Float = 0f): Boolean {
+        if (!isNativeInitialized) {
+            android.util.Log.e("USBAudioRecorder", "Cannot start monitoring - native audio not initialized")
+            return false
+        }
+        
+        android.util.Log.i("USBAudioRecorder", "Starting monitoring with gain $gainDb dB")
+        val result = startMonitoringNative(gainDb.coerceIn(0f, 64f))
+        
+        if (result) {
+            android.util.Log.i("USBAudioRecorder", "Monitoring started successfully")
+            viewModel.startMonitoring()
+        } else {
+            android.util.Log.e("USBAudioRecorder", "Failed to start monitoring")
+        }
+        
+        return result
+    }
+
+    fun stopMonitoring(): Boolean {
+        if (!isNativeInitialized) {
+            android.util.Log.w("USBAudioRecorder", "Cannot stop monitoring - native audio not initialized")
+            return true
+        }
+        
+        android.util.Log.i("USBAudioRecorder", "Stopping monitoring")
+        val result = stopMonitoringNative()
+        
+        if (result) {
+            android.util.Log.i("USBAudioRecorder", "Monitoring stopped successfully")
+            // Note: ViewModel state is managed by the UI layer (RecordFragment)
+            // No need to call viewModel here
+        } else {
+            android.util.Log.e("USBAudioRecorder", "Failed to stop monitoring")
+        }
+        
+        return result
+    }
+
+    fun isMonitoring(): Boolean {
+        return if (isNativeInitialized) {
+            isMonitoringNative()
+        } else {
+            false
+        }
+    }
+
+    fun isRecording(): Boolean {
+        return if (isNativeInitialized) {
+            isRecordingNative()
+        } else {
+            false
         }
     }
 

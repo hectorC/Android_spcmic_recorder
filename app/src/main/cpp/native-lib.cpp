@@ -175,6 +175,69 @@ Java_com_spcmic_recorder_USBAudioRecorder_startRecordingNativeWithFd(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_startRecordingFromMonitoringNative(
+        JNIEnv* env,
+        jobject thiz,
+        jstring outputPath) {
+    std::lock_guard<std::mutex> lock(g_nativeMutex);
+    
+    if (!g_recorder) {
+        LOGE("Cannot start recording from monitoring: g_recorder is null");
+        return JNI_FALSE;
+    }
+    
+    const char* path = env->GetStringUTFChars(outputPath, nullptr);
+    if (!path) {
+        LOGE("Failed to get output path string");
+        return JNI_FALSE;
+    }
+    
+    LOGI("Starting recording from monitoring: %s", path);
+    bool result = g_recorder->startRecordingFromMonitoring(std::string(path));
+    env->ReleaseStringUTFChars(outputPath, path);
+    
+    if (result) {
+        LOGI("Recording from monitoring started successfully");
+    } else {
+        LOGE("Failed to start recording from monitoring");
+    }
+    
+    return result ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_startRecordingFromMonitoringNativeWithFd(
+        JNIEnv* env,
+        jobject thiz,
+        jint fd,
+        jstring displayPath) {
+    std::lock_guard<std::mutex> lock(g_nativeMutex);
+    
+    if (!g_recorder) {
+        LOGE("Cannot start recording from monitoring: g_recorder is null");
+        return JNI_FALSE;
+    }
+    
+    const char* path = env->GetStringUTFChars(displayPath, nullptr);
+    if (!path) {
+        LOGE("Failed to get display path string");
+        return JNI_FALSE;
+    }
+    
+    LOGI("Starting recording from monitoring via fd=%d: %s", fd, path);
+    bool result = g_recorder->startRecordingFromMonitoringWithFd(fd, std::string(path));
+    env->ReleaseStringUTFChars(displayPath, path);
+    
+    if (result) {
+        LOGI("Recording from monitoring started successfully via fd");
+    } else {
+        LOGE("Failed to start recording from monitoring via fd");
+    }
+    
+    return result ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_spcmic_recorder_USBAudioRecorder_hasClippedNative(
         JNIEnv* env,
         jobject thiz) {
@@ -239,16 +302,104 @@ Java_com_spcmic_recorder_USBAudioRecorder_stopRecordingNative(
     bool result = g_recorder->stopRecording();
     
     if (result) {
-        LOGI("Native recording stopped successfully. The recorder instance is now idle.");
+        LOGI("Native recording stopped successfully. Still monitoring.");
     } else {
         LOGE("Failed to stop native recording cleanly.");
     }
 
-    // We NO LONGER delete g_recorder here.
-    // The instance is left in a "stopped" state. The next call to
-    // startRecordingNative is responsible for cleaning up this old instance.
+    // Recorder instance remains for monitoring mode
     
     return result ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_startMonitoringNative(
+        JNIEnv* env,
+        jobject thiz,
+        jfloat gainDb) {
+    std::lock_guard<std::mutex> lock(g_nativeMutex);
+    
+    if (!g_usbAudioInterface) {
+        LOGE("Cannot start monitoring: USB audio interface not initialized");
+        return JNI_FALSE;
+    }
+    
+    // Delete old recorder instance if it exists
+    if (g_recorder) {
+        LOGI("Deleting old recorder instance before starting monitoring");
+        delete g_recorder;
+        g_recorder = nullptr;
+    }
+    
+    // Create new recorder instance
+    g_recorder = new MultichannelRecorder(g_usbAudioInterface);
+    
+    // Start monitoring with specified gain
+    LOGI("Starting monitoring with gain %.1f dB", gainDb);
+    bool result = g_recorder->startMonitoring(gainDb);
+    
+    if (!result) {
+        LOGE("Failed to start monitoring");
+        delete g_recorder;
+        g_recorder = nullptr;
+        return JNI_FALSE;
+    }
+    
+    LOGI("Monitoring started successfully");
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_stopMonitoringNative(
+        JNIEnv* env,
+        jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_nativeMutex);
+    
+    if (!g_recorder) {
+        LOGW("JNI", "stopMonitoringNative called but g_recorder is null.");
+        return JNI_TRUE;
+    }
+    
+    LOGI("Stopping monitoring...");
+    bool result = g_recorder->stopMonitoring();
+    
+    if (result) {
+        LOGI("Monitoring stopped successfully");
+    } else {
+        LOGE("Failed to stop monitoring cleanly");
+    }
+    
+    // Clean up recorder instance after stopping monitoring
+    delete g_recorder;
+    g_recorder = nullptr;
+    
+    return result ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_isMonitoringNative(
+        JNIEnv* env,
+        jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_nativeMutex);
+    
+    if (!g_recorder) {
+        return JNI_FALSE;
+    }
+    
+    return g_recorder->isMonitoring() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_USBAudioRecorder_isRecordingNative(
+        JNIEnv* env,
+        jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_nativeMutex);
+    
+    if (!g_recorder) {
+        return JNI_FALSE;
+    }
+    
+    return g_recorder->isRecording() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL

@@ -16,8 +16,18 @@ public:
     MultichannelRecorder(USBAudioInterface* audioInterface);
     ~MultichannelRecorder();
     
+    // Monitoring mode (USB streaming + audio processing, no file writing)
+    bool startMonitoring(float gainDb = 0.0f);
+    bool stopMonitoring();
+    bool isMonitoring() const { return m_isMonitoring.load(); }
+    
+    // Recording mode (monitoring + file writing)
     bool startRecording(const std::string& outputPath, float gainDb = 0.0f);
     bool startRecordingWithFd(int fd, const std::string& displayPath, float gainDb = 0.0f);
+    bool startRecordingFromMonitoring(const std::string& outputPath);
+    bool startRecordingFromMonitoringWithFd(int fd, const std::string& displayPath);
+    
+    // Stop both monitoring and recording
     bool stopRecording();
     bool isRecording() const { return m_isRecording.load(); }
     
@@ -36,7 +46,8 @@ private:
     USBAudioInterface* m_audioInterface;
     WAVWriter* m_wavWriter;
     
-    std::atomic<bool> m_isRecording;
+    std::atomic<bool> m_isMonitoring;  // USB streaming + audio processing active
+    std::atomic<bool> m_isRecording;   // File writing active (implies monitoring)
     std::thread m_recordingThread;
     std::thread m_diskWriteThread;
     

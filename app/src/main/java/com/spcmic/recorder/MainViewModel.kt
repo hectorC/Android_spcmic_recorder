@@ -9,12 +9,22 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+enum class RecorderState {
+    IDLE,        // Not monitoring or recording
+    MONITORING,  // USB streaming active, levels visible, no file writing
+    RECORDING    // USB streaming + file writing active
+}
+
 class MainViewModel : ViewModel() {
 
     companion object {
         private const val DEFAULT_SAMPLE_RATE = 48000
     }
 
+    private val _recorderState = MutableLiveData(RecorderState.IDLE)
+    val recorderState: LiveData<RecorderState> = _recorderState
+
+    // Deprecated - use recorderState instead
     private val _isRecording = MutableLiveData(false)
     val isRecording: LiveData<Boolean> = _isRecording
     
@@ -62,6 +72,7 @@ class MainViewModel : ViewModel() {
         _isClipping.value = false
         _peakLevel.value = 0f
         _gainDb.value = 0f
+        _recorderState.value = RecorderState.IDLE
     }
     
     fun setUSBDevice(device: UsbDevice?) {
@@ -71,18 +82,35 @@ class MainViewModel : ViewModel() {
             resetSampleRateState()
             _isClipping.value = false
             _recordingFileName.value = null
+            _recorderState.value = RecorderState.IDLE
+            _isRecording.value = false
         }
     }
     
-    fun startRecording() {
-        if (_isRecording.value == true) return
+    fun startMonitoring() {
+        if (_recorderState.value != RecorderState.IDLE) {
+            android.util.Log.w("MainViewModel", "Cannot start monitoring - not in IDLE state")
+            return
+        }
         
+        _recorderState.value = RecorderState.MONITORING
+        _isRecording.value = false  // Maintain backward compatibility
+    }
+    
+    fun startRecording() {
+        if (_recorderState.value != RecorderState.MONITORING) {
+            android.util.Log.w("MainViewModel", "Cannot start recording - not in MONITORING state")
+            return
+        }
+        
+        // MONITORING -> RECORDING transition
+        _recorderState.value = RecorderState.RECORDING
         _isRecording.value = true
         _recordingTime.value = 0L
         
         recordingJob = viewModelScope.launch {
             var seconds = 0L
-            while (_isRecording.value == true) {
+            while (_recorderState.value == RecorderState.RECORDING) {
                 delay(1000)
                 seconds++
                 _recordingTime.value = seconds
@@ -91,6 +119,13 @@ class MainViewModel : ViewModel() {
     }
     
     fun stopRecording() {
+        if (_recorderState.value != RecorderState.RECORDING) {
+            android.util.Log.w("MainViewModel", "Cannot stop recording - not in RECORDING state")
+            return
+        }
+        
+        // RECORDING -> IDLE transition (stops everything)
+        _recorderState.value = RecorderState.IDLE
         _isRecording.value = false
         recordingJob?.cancel()
         recordingJob = null
