@@ -131,6 +131,17 @@ class MainViewModel : ViewModel() {
         recordingJob = null
     }
     
+    fun stopMonitoring() {
+        if (_recorderState.value != RecorderState.MONITORING) {
+            android.util.Log.w("MainViewModel", "Cannot stop monitoring - not in MONITORING state")
+            return
+        }
+        
+        // MONITORING -> IDLE transition (cancel monitoring without recording)
+        _recorderState.value = RecorderState.IDLE
+        _isRecording.value = false
+    }
+    
     fun updateSampleRateOptions(
         rates: List<Int>,
         supportsContinuous: Boolean,

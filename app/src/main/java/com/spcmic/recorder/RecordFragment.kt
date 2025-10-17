@@ -174,6 +174,17 @@ class RecordFragment : Fragment() {
                 handleRecordButtonClick()
             }
             
+            // Long-press to exit monitoring mode without recording
+            btnRecord.setOnLongClickListener {
+                when (viewModel.recorderState.value) {
+                    RecorderState.MONITORING -> {
+                        handleExitMonitoring()
+                        true // Consume the long click
+                    }
+                    else -> false // Don't consume - no long-press action for other states
+                }
+            }
+            
             btnRefreshDevices.setOnClickListener {
                 refreshUSBDevices()
             }
@@ -666,6 +677,18 @@ class RecordFragment : Fragment() {
         
         // Stop level meter polling
         stopLevelMeterPolling()
+    }
+    
+    private fun handleExitMonitoring() {
+        // User long-pressed to exit monitoring without recording
+        audioRecorder.stopMonitoring()
+        viewModel.stopMonitoring()
+        
+        // Stop level meter polling
+        stopLevelMeterPolling()
+        
+        Toast.makeText(requireContext(), "Monitoring cancelled", Toast.LENGTH_SHORT).show()
+        Log.i("RecordFragment", "Monitoring cancelled via long-press")
     }
 
     private fun startLevelMeterPolling() {
