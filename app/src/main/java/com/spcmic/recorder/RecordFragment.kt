@@ -26,15 +26,25 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.materialswitch.MaterialSwitch
 import com.spcmic.recorder.databinding.FragmentRecordBinding
+import com.spcmic.recorder.location.GpxLocationRepository
+import com.spcmic.recorder.location.LocationCaptureManager
+import com.spcmic.recorder.location.LocationPreferences
+import com.spcmic.recorder.location.LocationStatus
+import com.spcmic.recorder.location.RecordingLocation
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.Date
 
 class RecordFragment : Fragment() {
     
@@ -52,6 +62,11 @@ class RecordFragment : Fragment() {
     private var clipWarningAnimation: android.view.animation.Animation? = null
     private var currentStorageInfo: StorageLocationManager.StorageInfo? = null
     private var levelMeterJob: Job? = null
+    private lateinit var gpxLocationRepository: GpxLocationRepository
+    private lateinit var locationCaptureManager: LocationCaptureManager
+    private lateinit var locationPermissionLauncher: ActivityResultLauncher<String>
+    private var locationSwitchRef: MaterialSwitch? = null
+    private var suppressLocationSwitchCallback = false
     
     private lateinit var requestPermissionLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var storagePickerLauncher: ActivityResultLauncher<Uri?>
@@ -59,6 +74,12 @@ class RecordFragment : Fragment() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        locationPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            handleLocationPermissionResult(granted)
+        }
 
         requestPermissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
@@ -118,6 +139,7 @@ class RecordFragment : Fragment() {
         initializeStorageLocation()
         checkPermissions()
         checkBatteryOptimization()
+    initializeLocationComponents()
         observeViewModel()
         
         // Restore USB connection if fragment is being recreated but audioRecorder exists
@@ -267,6 +289,13 @@ class RecordFragment : Fragment() {
             btnSettings.setOnClickListener {
                 showSettingsBottomSheet()
             }
+
+            val initialStatus = viewModel.locationStatus.value ?: if (viewModel.locationCaptureEnabled.value == true) {
+                LocationStatus.Idle
+            } else {
+                LocationStatus.Disabled
+            }
+            updateLocationCard(initialStatus, viewModel.locationFix.value)
         }
     }
 
@@ -355,6 +384,24 @@ class RecordFragment : Fragment() {
         currentStorageInfo = info
         viewModel.setStoragePath(info.displayPath)
         binding.tvStoragePath.text = info.displayPath
+    }
+
+    private fun initializeLocationComponents() {
+        gpxLocationRepository = GpxLocationRepository(requireContext())
+        locationCaptureManager = LocationCaptureManager(requireContext(), viewModel)
+
+        val captureEnabled = LocationPreferences.isCaptureEnabled(requireContext())
+        viewModel.setLocationCaptureEnabled(captureEnabled)
+        locationCaptureManager.reset()
+
+        val currentStatus = viewModel.locationStatus.value ?: if (captureEnabled && ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            LocationStatus.Idle
+        } else if (captureEnabled) {
+            LocationStatus.PermissionDenied
+        } else {
+            LocationStatus.Disabled
+        }
+        updateLocationCard(currentStatus, viewModel.locationFix.value)
     }
     
     private fun observeViewModel() {
@@ -461,6 +508,20 @@ class RecordFragment : Fragment() {
 
         viewModel.storagePath.observe(viewLifecycleOwner) { path ->
             binding.tvStoragePath.text = path
+        }
+
+        viewModel.locationStatus.observe(viewLifecycleOwner) { status ->
+            val fix = viewModel.locationFix.value
+            updateLocationCard(status, fix)
+        }
+
+        viewModel.locationFix.observe(viewLifecycleOwner) { fix ->
+            val currentStatus = viewModel.locationStatus.value ?: if (viewModel.locationCaptureEnabled.value == true) {
+                LocationStatus.Idle
+            } else {
+                LocationStatus.Disabled
+            }
+            updateLocationCard(currentStatus, fix)
         }
     }
 
@@ -667,6 +728,9 @@ class RecordFragment : Fragment() {
     }
     
     private fun stopRecording() {
+        val latestFileName = viewModel.recordingFileName.value
+        val shouldCaptureLocation = viewModel.locationCaptureEnabled.value == true && ::locationCaptureManager.isInitialized
+
         audioRecorder.stopRecording()
         viewModel.stopRecording()
         requireActivity().window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -677,6 +741,15 @@ class RecordFragment : Fragment() {
         
         // Stop level meter polling
         stopLevelMeterPolling()
+
+        if (shouldCaptureLocation && latestFileName != null) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val location = locationCaptureManager.captureLocationForRecording()
+                if (location != null) {
+                    persistRecordingLocation(latestFileName, location)
+                }
+            }
+        }
     }
     
     private fun handleExitMonitoring() {
@@ -760,10 +833,153 @@ class RecordFragment : Fragment() {
         binding.ivClipWarning.visibility = if (isClipping) View.VISIBLE else View.GONE
     }
 
+    private fun handleLocationPermissionResult(granted: Boolean) {
+        if (!isAdded) {
+            return
+        }
+
+        val switch = locationSwitchRef
+        suppressLocationSwitchCallback = true
+        if (granted) {
+            enableLocationCapture()
+            switch?.isChecked = true
+        } else {
+            LocationPreferences.setCaptureEnabled(requireContext(), false)
+            viewModel.setLocationCaptureEnabled(false)
+            viewModel.updateLocationStatus(LocationStatus.PermissionDenied)
+            viewModel.updateLocationFix(null)
+            switch?.isChecked = false
+            Toast.makeText(requireContext(), getString(R.string.location_status_permission_denied), Toast.LENGTH_SHORT).show()
+        }
+        suppressLocationSwitchCallback = false
+    }
+
+    private fun handleLocationSwitchChanged(switch: MaterialSwitch, enabled: Boolean) {
+        if (enabled) {
+            if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                enableLocationCapture()
+            } else {
+                val rationaleNeeded = shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)
+                if (rationaleNeeded) {
+                    AlertDialog.Builder(requireContext())
+                        .setTitle(R.string.location_settings_title)
+                        .setMessage(R.string.location_permission_rationale)
+                        .setPositiveButton(android.R.string.ok) { _, _ ->
+                            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        }
+                        .setNegativeButton(android.R.string.cancel) { _, _ ->
+                            setSwitchCheckedWithoutCallback(switch, false)
+                        }
+                        .setCancelable(false)
+                        .show()
+                } else {
+                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                }
+            }
+        } else {
+            disableLocationCapture()
+            setSwitchCheckedWithoutCallback(switch, false)
+        }
+    }
+
+    private fun setSwitchCheckedWithoutCallback(switch: MaterialSwitch, checked: Boolean) {
+        suppressLocationSwitchCallback = true
+        switch.isChecked = checked
+        suppressLocationSwitchCallback = false
+    }
+
+    private fun enableLocationCapture() {
+        if (!::locationCaptureManager.isInitialized) return
+        LocationPreferences.setCaptureEnabled(requireContext(), true)
+        viewModel.setLocationCaptureEnabled(true)
+        locationCaptureManager.reset()
+    }
+
+    private fun disableLocationCapture() {
+        if (!::locationCaptureManager.isInitialized) return
+        LocationPreferences.setCaptureEnabled(requireContext(), false)
+        viewModel.setLocationCaptureEnabled(false)
+        locationCaptureManager.reset()
+    }
+
+    private fun updateLocationCard(status: LocationStatus, fix: RecordingLocation?) {
+        if (!isAdded || _binding == null) {
+            return
+        }
+
+        val locationEnabled = viewModel.locationCaptureEnabled.value == true
+        val locationIcon = binding.ivTimecodeLocation
+
+        if (!locationEnabled) {
+            locationIcon.visibility = View.GONE
+            return
+        }
+
+        val tintColor = when (status) {
+            LocationStatus.PermissionDenied, is LocationStatus.Unavailable -> R.color.clip_indicator_alert
+            LocationStatus.Disabled -> R.color.brand_on_surface_variant
+            else -> R.color.brand_primary
+        }
+        locationIcon.setColorFilter(ContextCompat.getColor(requireContext(), tintColor))
+        locationIcon.visibility = View.VISIBLE
+
+        locationIcon.contentDescription = when (status) {
+            LocationStatus.Disabled -> getString(R.string.location_status_disabled)
+            LocationStatus.Idle -> getString(R.string.location_status_idle)
+            LocationStatus.Acquiring -> getString(R.string.location_status_acquiring)
+            is LocationStatus.Ready -> buildLocationDetails(fix) ?: getString(R.string.location_status_idle)
+            is LocationStatus.Unavailable -> status.reason ?: getString(R.string.location_status_unavailable)
+            LocationStatus.PermissionDenied -> getString(R.string.location_status_permission_denied)
+        }
+    }
+
+    private fun buildLocationDetails(fix: RecordingLocation?): String? {
+        if (fix == null) return null
+        val parts = mutableListOf<String>()
+        fix.accuracyMeters?.let {
+            parts.add(getString(R.string.location_accuracy_format, it))
+        }
+        val timestamp = Date(fix.timestampMillisUtc)
+        parts.add(getString(R.string.location_timestamp_format, timestamp))
+        return parts.joinToString(" • ")
+    }
+
+    private fun persistRecordingLocation(fileName: String, location: RecordingLocation) {
+        if (!::gpxLocationRepository.isInitialized) return
+        val storageInfo = currentStorageInfo ?: StorageLocationManager.getStorageInfo(requireContext())
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                gpxLocationRepository.upsertLocation(storageInfo, fileName, location)
+            }.onFailure {
+                Log.e("RecordFragment", "Failed to persist location for $fileName", it)
+            }
+        }
+    }
+
     private fun showSettingsBottomSheet() {
         // Create a bottom sheet dialog for settings
         val bottomSheet = com.google.android.material.bottomsheet.BottomSheetDialog(requireContext())
         val sheetView = layoutInflater.inflate(R.layout.bottom_sheet_settings, null)
+
+        val basePaddingLeft = sheetView.paddingLeft
+        val basePaddingTop = sheetView.paddingTop
+        val basePaddingRight = sheetView.paddingRight
+        val basePaddingBottom = sheetView.paddingBottom
+        val insetSpacer = sheetView.findViewById<View>(R.id.bottomInsetSpacer)
+        ViewCompat.setOnApplyWindowInsetsListener(sheetView) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(basePaddingLeft, basePaddingTop, basePaddingRight, basePaddingBottom)
+            insetSpacer?.let { spacer ->
+                val params = spacer.layoutParams
+                val targetHeight = systemBars.bottom
+                if (params.height != targetHeight) {
+                    params.height = targetHeight
+                    spacer.layoutParams = params
+                }
+            }
+            insets
+        }
+        ViewCompat.requestApplyInsets(sheetView)
         
         // Setup storage location button
         val btnChangeStorage = sheetView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnChangeStorage)
@@ -806,7 +1022,22 @@ class RecordFragment : Fragment() {
         val tvSampleRateInfo = sheetView.findViewById<android.widget.TextView>(R.id.tvSampleRateInfoSheet)
         tvSampleRateInfo?.text = "• Sample Rate: ${formatSampleRate(viewModel.selectedSampleRate.value)}"
         
+        val switchLocationCapture = sheetView.findViewById<MaterialSwitch>(R.id.switchLocationCapture)
+        locationSwitchRef = switchLocationCapture
+        suppressLocationSwitchCallback = true
+        switchLocationCapture.isChecked = viewModel.locationCaptureEnabled.value == true
+        suppressLocationSwitchCallback = false
+        switchLocationCapture.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressLocationSwitchCallback) {
+                return@setOnCheckedChangeListener
+            }
+            handleLocationSwitchChanged(switchLocationCapture, isChecked)
+        }
+
         bottomSheet.setContentView(sheetView)
+        bottomSheet.setOnDismissListener {
+            locationSwitchRef = null
+        }
         bottomSheet.show()
     }
 
@@ -877,6 +1108,7 @@ class RecordFragment : Fragment() {
         stopLevelMeterPolling()
         recordingPulseAnimation = null
         clipWarningAnimation = null
+        locationSwitchRef = null
         _binding = null
     }
     

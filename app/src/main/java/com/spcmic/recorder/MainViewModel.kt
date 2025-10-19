@@ -5,6 +5,8 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.spcmic.recorder.location.LocationStatus
+import com.spcmic.recorder.location.RecordingLocation
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -63,6 +65,15 @@ class MainViewModel : ViewModel() {
 
     private val _storagePath = MutableLiveData<String>()
     val storagePath: LiveData<String> = _storagePath
+
+    private val _locationCaptureEnabled = MutableLiveData(false)
+    val locationCaptureEnabled: LiveData<Boolean> = _locationCaptureEnabled
+
+    private val _locationStatus = MutableLiveData<LocationStatus>(LocationStatus.Disabled)
+    val locationStatus: LiveData<LocationStatus> = _locationStatus
+
+    private val _locationFix = MutableLiveData<RecordingLocation?>(null)
+    val locationFix: LiveData<RecordingLocation?> = _locationFix
     
     private var recordingJob: Job? = null
     private var currentUSBDevice: UsbDevice? = null
@@ -73,6 +84,7 @@ class MainViewModel : ViewModel() {
         _peakLevel.value = 0f
         _gainDb.value = 0f
         _recorderState.value = RecorderState.IDLE
+        _locationStatus.value = LocationStatus.Disabled
     }
     
     fun setUSBDevice(device: UsbDevice?) {
@@ -194,6 +206,18 @@ class MainViewModel : ViewModel() {
 
     fun setStoragePath(path: String) {
         _storagePath.value = path
+    }
+
+    fun setLocationCaptureEnabled(enabled: Boolean) {
+        _locationCaptureEnabled.value = enabled
+    }
+
+    fun updateLocationStatus(status: LocationStatus) {
+        _locationStatus.postValue(status)
+    }
+
+    fun updateLocationFix(location: RecordingLocation?) {
+        _locationFix.postValue(location)
     }
 
     private fun resetSampleRateState() {

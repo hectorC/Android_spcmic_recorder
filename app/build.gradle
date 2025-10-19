@@ -117,6 +117,7 @@ dependencies {
     implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.7.0'
     implementation 'androidx.activity:activity-ktx:1.8.2'
     implementation 'androidx.fragment:fragment-ktx:1.6.2'
+    implementation 'com.google.android.gms:play-services-location:21.0.1'
     
     // For file operations
     implementation 'androidx.documentfile:documentfile:1.0.1'

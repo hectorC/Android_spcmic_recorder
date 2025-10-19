@@ -8,6 +8,9 @@
     
     <!-- Audio recording permissions -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Location permission for optional geotagging -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     
     <!-- Storage permissions for saving WAV files -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 

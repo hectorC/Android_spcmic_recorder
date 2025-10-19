@@ -61,56 +61,79 @@
             app:strokeColor="@color/card_stroke"
             app:strokeWidth="0dp">
 
-            <LinearLayout
+            <androidx.constraintlayout.widget.ConstraintLayout
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center"
-                android:orientation="vertical"
-                android:paddingVertical="@dimen/timecode_card_padding_vertical"
-                android:paddingHorizontal="@dimen/timecode_card_padding_horizontal">
+                android:layout_height="wrap_content">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:id="@+id/timecodeContent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:text="@string/session_time_label"
-                    android:textAppearance="@style/TextAppearance.Material3.LabelMedium"
-                    android:textColor="@color/brand_on_surface_variant"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1" />
-
-                <TextView
-                    android:id="@+id/tvRecordingTime"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="00:00:00"
-                    android:textAppearance="@style/TextAppearance.Material3.DisplayLarge"
-                    android:textStyle="bold"
-                    android:textColor="@color/brand_on_surface"
-                    android:letterSpacing="0"
-                    android:fontFamily="monospace"
-                    android:includeFontPadding="false"
-                    android:maxLines="1"
                     android:gravity="center"
-                    android:textSize="@dimen/timecode_text_size"
-                    android:paddingStart="8dp"
-                    android:paddingEnd="8dp" />
+                    android:orientation="vertical"
+                    android:paddingVertical="@dimen/timecode_card_padding_vertical"
+                    android:paddingHorizontal="@dimen/timecode_card_padding_horizontal"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent">
 
-                <TextView
-                    android:id="@+id/tvRecordingFilename"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                    android:textColor="@color/brand_on_surface_variant"
-                    android:freezesText="true"
-                    android:ellipsize="middle"
-                    android:maxLines="1"
-                    android:importantForAccessibility="no"
-                    android:text=" "
-                    tools:text="spcmic_recording_20251002_101500.wav" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:text="@string/session_time_label"
+                        android:textAppearance="@style/TextAppearance.Material3.LabelMedium"
+                        android:textColor="@color/brand_on_surface_variant"
+                        android:textAllCaps="true"
+                        android:letterSpacing="0.1" />
 
-            </LinearLayout>
+                    <TextView
+                        android:id="@+id/tvRecordingTime"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="00:00:00"
+                        android:textAppearance="@style/TextAppearance.Material3.DisplayLarge"
+                        android:textStyle="bold"
+                        android:textColor="@color/brand_on_surface"
+                        android:letterSpacing="0"
+                        android:fontFamily="monospace"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:gravity="center"
+                        android:textSize="@dimen/timecode_text_size"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp" />
+
+                    <TextView
+                        android:id="@+id/tvRecordingFilename"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/brand_on_surface_variant"
+                        android:freezesText="true"
+                        android:ellipsize="middle"
+                        android:maxLines="1"
+                        android:importantForAccessibility="no"
+                        android:text=" "
+                        tools:text="spcmic_recording_20251002_101500.wav" />
+
+                </LinearLayout>
+
+                <ImageView
+                    android:id="@+id/ivTimecodeLocation"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_margin="12dp"
+                    android:contentDescription="@string/location_settings_title"
+                    android:src="@drawable/ic_location"
+                    android:visibility="gone"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    android:tint="@color/brand_primary" />
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
 
         </com.google.android.material.card.MaterialCardView>
 

@@ -38,4 +38,16 @@
     <string name="storage_location_updated">Storage location updated</string>
     <string name="storage_location_failed">Unable to switch to the selected directory</string>
     <string name="no_clip_short">No Clip</string>
+    <string name="location_status_title">Location</string>
+    <string name="location_status_disabled">Location capture disabled</string>
+    <string name="location_status_idle">Location ready</string>
+    <string name="location_status_acquiring">Acquiring location...</string>
+    <string name="location_status_unavailable">Location unavailable</string>
+    <string name="location_status_permission_denied">Location permission denied</string>
+    <string name="location_accuracy_format">Accuracy +/- %1$.0f m</string>
+    <string name="location_timestamp_format">Captured at %1$tH:%1$tM:%1$tS</string>
+    <string name="location_settings_title">Geolocation</string>
+    <string name="location_settings_description">Location tracking</string>
+    <string name="location_settings_toggle">Capture recording location</string>
+    <string name="location_permission_rationale">Precise location permission is required to tag recordings.</string>
 </resources>

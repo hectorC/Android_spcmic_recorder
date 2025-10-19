@@ -12,6 +12,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.spcmic.recorder.R
 import com.spcmic.recorder.StorageLocationManager
+import com.spcmic.recorder.location.GpxLocationRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -92,9 +93,11 @@ class PlaybackViewModel : ViewModel() {
 
     private var appContext: Context? = null
     private var storageInfo: StorageLocationManager.StorageInfo? = null
+    private var gpxRepository: GpxLocationRepository? = null
 
     fun attachContext(context: Context) {
         appContext = context.applicationContext
+        gpxRepository = GpxLocationRepository(context.applicationContext)
     }
 
     fun setAssetManager(manager: AssetManager) {
@@ -595,6 +598,16 @@ class PlaybackViewModel : ViewModel() {
             }
 
             if (deleted) {
+                storageInfo?.let { info ->
+                    gpxRepository?.let { repository ->
+                        runCatching {
+                            repository.removeLocation(info, recording.fileName)
+                        }.onFailure { throwable ->
+                            Log.w(TAG, "Failed to remove GPX entry for ${recording.fileName}", throwable)
+                        }
+                    }
+                }
+
                 withContext(Dispatchers.Main) {
                     if (_selectedRecording.value?.uniqueId == recording.uniqueId) {
                         clearSelection()
