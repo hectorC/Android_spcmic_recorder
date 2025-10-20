@@ -1,38 +1,40 @@
-**Note (written by a human):** Contains AI generated code and functionality description text (with a bit of AI hyperbole). This app is currently functional overall but it could still be unstable or buggy. Use at your own risk.
+**Note (written by a human):** Contains AI generated code and descriptions text. This app is currently overall functional but it could still be unstable or buggy. If you encounter any problems, please use the issues section to report them.
 
 # spcmic Recorder & Playback
 
-An Android app for capturing and reviewing the full 84-channel output of the spcmic array over USB-C. The project pairs a native USB audio engine with a Kotlin MVVM UI and Material Design 3 styling to support field recordings plus binaural playback.
+An Android app for capturing and reviewing the full 84-channel output of the spcmic array [https://spcmic.com/] over USB-C. The project pairs a native USB audio engine with a Kotlin MVVM UI and Material Design 3 styling to support field recordings plus binaural playback.
 
 ## Current Highlights
 
 - **84-channel USB-UAC2 capture** at 24-bit/48 kHz (higher rates when exposed by the hardware) with deterministic channel order and standard WAV metadata.
-- **Adaptive sample-rate negotiation** with a spinner that shows both the requested and negotiated rates after enumeration.
+- **Adaptive sample-rate negotiation** with information that shows both the requested and negotiated rates after enumeration (see settings panel).
 - **Monitoring mode** allowing USB streaming and level observation before committing to disk, with long-press exit for monitoring-only checks.
 - **Real-time level metering** tracking the loudest channel across all 84 inputs, with visual feedback across green/yellow/red zones and a latched clipping indicator that persists until manually cleared.
 - **Recording gain control** (0 to +48 dB) applied in the native capture pipeline before writing to disk, with clip detection for gain-induced overflows.
 - **Large-file support** by promoting recordings to RF64 once they exceed RIFF limits while keeping metadata aligned with the negotiated format.
-- **Native playback engine** with caching, transport controls, and a gain stage from 0 dB to +48 dB for the binaural preview path.
+- **Destination directory selection** in the settings panel, to either internal storage or external USB storage (e.g., SSD with a USB-C hub so the spcmic can be simultaneously plugged)
+- **Native playback engine** with pre-processing caching to binaural (realtime playback is not yet possible), transport controls, and a gain stage from 0 dB to +48 dB for the binaural preview path.
 - **Loop toggle** that restarts playback at EOF while keeping button state and engine behavior in sync.
-- **Export workflow** decoupled from playback: start an export from any recording, watch progress in the processing overlay, and leave playback ready the whole time.
-- **Dedicated exports directory** at `/storage/emulated/0/Documents/spcmicRecorder/Exports/`, keeping rendered mixes out of the source recording list.
+- **Export workflow** decoupled from playback: start an export from any recording, watch progress in the processing overlay.
+- **Dedicated exports directory** `Exports` created in the same directory as the recording target, keeping rendered mixes out of the source recording list.
 - **Per-take geolocation** with an opt-in toggle, status indicator, and single-shot fixes stored in a `spcmic_locations.gpx` sidecar (accuracy, altitude, and provider metadata included).
-- **Overflow menu cleanup** with a working delete action, confirmation dialog, and automatic UI refresh.
 
 ## Requirements
 
 ### Hardware
 - Android device running Android 10 (API 29) or newer with USB Host mode.
-- spcmic 84-channel USB audio array with a USB-C OTG/host cable.
+- spcmic 84-channel USB audio array.
 - High-speed storage (rule of thumb: ~1 GB/minute at 48 kHz, ~2 GB/minute at 96 kHz).
-- Optional: external power or cooling for extended sessions.
 
 ### Software
 - Android Studio Koala (2024.1.1) or newer with Android Gradle Plugin 8.6.1.
 - JDK 17 (bundled with recent Android Studio releases).
 - Gradle wrapper included in this repo (Gradle 8.8).
 
-## Build & Install
+## Install
+Pre-built apk files are available in the releases section (requires usual permissions in the device to allow for external apps to be installed)
+
+## Building from source
 
 Build debug version (with debug logging and symbols):
 ```powershell
@@ -76,17 +78,17 @@ Uninstall release build:
 .\gradlew.bat uninstallRelease
 ```
 
-When connecting the spcmic, accept the USB permission dialog and choose "Use by default" for smoother reconnects.
+When connecting the spcmic, accept all the permissions, including the USB permission dialog and choose "Use by default" so the app is launched automatically the next time the spcmic is plugged in.
 
-**Note**: The release build currently uses the debug keystore for signing. For production distribution, configure a proper signing key in `app/build.gradle`.
+Use the refresh button (circular arrow) if the microphone is not detected (the sample rate display besides the refresh button should show the sample rate)
 
 ## Recording Workflow
 
-1. **Connect hardware** – Plug the spcmic array into the device via USB-C. Tap *Reconnect* if Android claims the interface first.
-2. **Launch the recorder view** – The app auto-requests the default 48 kHz rate and displays both requested and negotiated values (see settings menu).
+1. **Connect hardware** – Plug the spcmic array into the device via USB-C. Tap *Reconnect* if Android claims the interface first or sample rate indicator is empty (you should see a toast alert when the device is successfully connected).
+2. **Launch the recorder view** – The app auto-requests the default 48 kHz rate and displays both requested and negotiated values (see settings menu for configuration details).
 3. **Select a sample rate** – Use the spinner to pick among the rates advertised by the interface/alt-setting (e.g., 48 kHz, 96 kHz).
 4. **Adjust gain** – Use the gain slider (0 to +48 dB) to boost input levels. Gain is applied in the native capture pipeline and written into the file. The level meter and clipping detector operate post-gain.
-5. **(Optional) Enable geolocation** – Toggle the location switch on the timecode card to capture a single high-accuracy fix at the end of each take. Grant fine location permission when prompted; the status pill updates from *Disabled* → *Searching* → *Locked*.
+5. **(Optional) Enable geolocation** – Toggle the location switch in the settings panel to capture a single high-accuracy fix at the end of each take. Grant fine location permission when prompted. A location marker will appear in the top right corner of the timecode box when geolocation is enabled.
 6. **Start monitoring** – Tap **START MONITORING** to begin USB streaming. The level meter shows the real-time peak level of the loudest channel, with color zones (green/yellow/red) indicating headroom. If any channel clips, a warning icon appears and the meter stays red until you tap to clear.
 7. **Start recording** – Once levels look appropriate, tap **START RECORDING** to open a timestamped WAV file (e.g., `spcmic_recording_YYYYMMDD_HHMMSS.wav`) and begin writing audio to disk. The UI displays elapsed time.
 8. **Stop recording** – Tap **STOP RECORDING** to finalize the file. Headers are back-filled with the negotiated format before the file is closed. When the payload exceeds 4 GB, the writer upgrades the container to RF64 and patches the ds64 chunk before close.
@@ -97,35 +99,24 @@ Recorded WAV files can be saved to:
 - **Default location**: `/storage/emulated/0/Documents/spcmicRecorder/`
 - **Custom location**: Use the "Storage Location" button in the Record tab to select any directory via Storage Access Framework (SAF)
 
-The app supports both direct filesystem access and SAF for maximum flexibility.
+The app supports both direct filesystem access and SAF (external storage) for maximum flexibility.
 
 ### Geolocation & GPX Sidecar
 
-- Location capture is disabled by default. When enabled, the recorder requests a foreground single-shot fix from the Fused Location Provider when you stop recording or monitoring.
-- A status indicator on the timecode card reflects permission and fix state; a location icon appears when the take is tagged.
-- Per-take metadata (latitude/longitude, timestamp, accuracy, optional altitude, and provider string) is persisted in `spcmic_locations.gpx` alongside the recording folder. Storage Access Framework targets receive the same GPX file via `DocumentsContract` writes.
-- Deleting a take from the playback list removes any matching `<wpt>` entry (case-insensitive) and deletes the sidecar when it becomes empty.
+- Location capture is disabled by default. When enabled, the recorder requests a foreground single-shot fix from the Fused Location Provider when you stop recording.
+- Per-take metadata (latitude/longitude, timestamp, accuracy, optional altitude, and provider string) is stored in `spcmic_locations.gpx` alongside the recording folder.
+- Deleting a take from the playback list removes any matching `<wpt>` waypoint entry and deletes the gpx file when it becomes empty.
 
 ## Playback & Export Workflow
 
+Playback as binaural 
+
 1. **Open a recording** – The playback screen lists top-level recordings only; exports are hidden to avoid duplication.
-2. **Adjust gain** – Drag the gain slider from 0 dB up to +48 dB for monitoring the binaural mix. Updates apply immediately through JNI to the native engine.
+2. **Adjust gain** – Drag the gain slider from 0 dB up to +48 dB for monitoring the binaural mix.
 3. **Toggle looping** – Use the loop button to restart playback at EOF. State persists across configuration changes and mirrors the native engine.
 4. **Watch the processing overlay** – Preprocessing or export operations surface progress in the shared overlay so you can track background work.
 5. **Export binaural audio** – Choose *Export* from the overflow menu to render a stereo mix while playback remains ready. Completed exports land in `/Documents/spcmicRecorder/Exports/`.
 6. **Delete recordings** – Use the overflow delete action to remove unwanted takes; confirmations prevent accidental loss.
-
-## File Layout
-
-- `app/src/main/java/com/spcmic/recorder/RecordFragment.kt` – Recording UI and controls.
-- `app/src/main/java/com/spcmic/recorder/playback/PlaybackFragment.kt` – Playback UI, gain slider, loop toggle, export menu, and delete dialog.
-- `app/src/main/java/com/spcmic/recorder/playback/PlaybackViewModel.kt` – LiveData state for playback, looping, gain, exports, and the processing overlay.
-- `app/src/main/java/com/spcmic/recorder/playback/NativePlaybackEngine.kt` – Kotlin interface to the native engine via JNI.
-- `app/src/main/java/com/spcmic/recorder/location/` – Opt-in geolocation toggle, preferences, single-shot capture manager, and GPX persistence utilities.
-- `app/src/main/cpp/multichannel_recorder.cpp` – USB capture threads, ring buffer coordination, and clip detection.
-- `app/src/main/cpp/wav_writer.cpp` – WAV/RF64 writer that back-fills headers for large files.
-- `app/src/main/cpp/playback/` – C++ audio engine handling caching, gain staging, looping, and export rendering.
-- `app/src/main/res/layout/` – Material Design 3 layouts for recording and playback surfaces.
 
 ## Architecture Notes
 
@@ -146,7 +137,7 @@ The app supports both direct filesystem access and SAF for maximum flexibility.
 
 | Issue | Suggested Fix |
 | --- | --- |
-| **Device not detected** | Confirm USB Host support, power the spcmic externally if needed, and tap *Reconnect* after granting permission. |
+| **Device not detected** | Confirm USB Host support and tap *Refresh* (circular arrow icon) after granting permission. |
 | **Sample-rate request fails** | Some rates live on alternate USB interface settings. Reconnect and retry with a rate listed in the spinner. |
 | **Level meter stays red** | Tap the level meter card to clear the latched clipping indicator. If clipping persists, reduce source gain or mic positioning. |
 | **Audio dropouts during recording** | Ensure sufficient free storage space, avoid heavy multitasking during recording. The app maintains more than 10 seconds of buffering to mitigate dropouts. |
@@ -156,7 +147,6 @@ The app supports both direct filesystem access and SAF for maximum flexibility.
 ## Roadmap
 
 - Expand export presets beyond the current binaural mix.
-- Add per-channel metering visualizations for detailed diagnostics.
 
 ## License & Contributions
 
