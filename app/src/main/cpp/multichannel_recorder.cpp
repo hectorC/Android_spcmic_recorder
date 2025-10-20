@@ -505,30 +505,27 @@ void MultichannelRecorder::processAudioBuffer(const uint8_t* buffer, size_t buff
             
             // Extract 24-bit sample
             int32_t sample = extract24BitSample(mutableBuffer + sampleOffset);
-            
-            // Apply gain (multiply by linear gain factor)
-            if (m_gainLinear != 1.0f) {
-                // Convert to float, apply gain, convert back to int32
-                float sampleFloat = static_cast<float>(sample);
-                sampleFloat *= m_gainLinear;
-                
-                // Check for clipping BEFORE clamping (detect if gain caused clipping)
-                constexpr float MAX_24BIT = 8388607.0f;  // 2^23 - 1
-                constexpr float MIN_24BIT = -8388608.0f; // -2^23
-                // Use > and < (not >= and <=) to catch any overflow before clamping
-                if (sampleFloat > MAX_24BIT || sampleFloat < MIN_24BIT) {
-                    m_clipDetected.store(true, std::memory_order_relaxed);
-                }
-                
-                // Clamp to 24-bit range to prevent overflow
-                sampleFloat = std::max(MIN_24BIT, std::min(MAX_24BIT, sampleFloat));
-                
-                sample = static_cast<int32_t>(sampleFloat);
-                
+
+            // Apply gain (multiply by linear gain factor) and detect clipping
+            constexpr float MAX_24BIT = 8388607.0f;   // 2^23 - 1
+            constexpr float MIN_24BIT = -8388608.0f;  // -2^23
+            float processedSample = static_cast<float>(sample) * m_gainLinear;
+
+            const bool clippedAfterGain = (processedSample >= MAX_24BIT) || (processedSample <= MIN_24BIT);
+            if (clippedAfterGain) {
+                m_clipDetected.store(true, std::memory_order_relaxed);
+            }
+
+            if (m_gainLinear != 1.0f || clippedAfterGain) {
+                float clampedSample = std::clamp(processedSample, MIN_24BIT, MAX_24BIT);
+                int32_t quantizedSample = static_cast<int32_t>(clampedSample);
+
                 // Write modified sample back to buffer (24-bit little-endian)
-                mutableBuffer[sampleOffset + 0] = static_cast<uint8_t>(sample & 0xFF);
-                mutableBuffer[sampleOffset + 1] = static_cast<uint8_t>((sample >> 8) & 0xFF);
-                mutableBuffer[sampleOffset + 2] = static_cast<uint8_t>((sample >> 16) & 0xFF);
+                mutableBuffer[sampleOffset + 0] = static_cast<uint8_t>(quantizedSample & 0xFF);
+                mutableBuffer[sampleOffset + 1] = static_cast<uint8_t>((quantizedSample >> 8) & 0xFF);
+                mutableBuffer[sampleOffset + 2] = static_cast<uint8_t>((quantizedSample >> 16) & 0xFF);
+
+                sample = quantizedSample;  // Use the post-gain value for level metering
             }
             
             // Track peak level (after gain application)

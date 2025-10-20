@@ -267,24 +267,27 @@
                             android:id="@+id/ivClipWarning"
                             android:layout_width="16dp"
                             android:layout_height="16dp"
+                            android:layout_marginEnd="4dp"
+                            android:contentDescription="@string/clipping_detected"
                             android:src="@drawable/ic_warning"
                             android:tint="@color/clip_indicator_alert"
-                            android:visibility="gone"
-                            android:layout_marginEnd="4dp"
-                            android:contentDescription="@string/clipping_detected" />
+                            android:visibility="gone" />
 
-                        <!-- Level percentage text -->
+                        <!-- Level value text -->
                         <TextView
-                            android:id="@+id/tvLevelPercent"
-                            android:layout_width="wrap_content"
+                            android:id="@+id/tvLevelDb"
+                            android:layout_width="72dp"
                             android:layout_height="wrap_content"
-                            android:text="0%"
+                            android:ellipsize="none"
+                            android:fontFamily="monospace"
+                            android:gravity="end"
+                            android:includeFontPadding="false"
+                            android:maxLines="1"
+                            android:text="0.0 dBFS"
                             android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
                             android:textColor="@color/brand_on_surface"
                             android:textSize="11sp"
-                            android:textStyle="bold"
-                            android:minWidth="32dp"
-                            android:gravity="end" />
+                            android:textStyle="bold" />
 
                     </LinearLayout>
 

@@ -317,7 +317,7 @@ class RecordFragment : Fragment() {
         }
         
         // Update text to show dBFS
-        binding.tvLevelPercent.text = String.format("%.1f dBFS", dbfs)
+        binding.tvLevelDb.text = String.format("%.1f dBFS", dbfs)
         
         // Professional logarithmic meter scale (like Pro Tools, Logic, etc.)
         // Map dBFS range to bar width: -60 dB = 0%, 0 dB = 100%
@@ -774,6 +774,11 @@ class RecordFragment : Fragment() {
                 try {
                     val peakLevel = audioRecorder.getPeakLevel()
                     viewModel.setPeakLevel(peakLevel)
+
+                    // Also check the native clip flag so monitoring mode latches the warning
+                    if (audioRecorder.hasClippedNative() && viewModel.isClipping.value != true) {
+                        viewModel.setClipping(true)
+                    }
                 } catch (e: Exception) {
                     Log.e("RecordFragment", "Error polling peak level", e)
                 }
