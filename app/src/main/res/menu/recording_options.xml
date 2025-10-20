@@ -2,7 +2,19 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
         android:id="@+id/action_export_binaural"
-        android:title="Export binaural mix"
+        android:title="@string/export_binaural_menu"
+        android:icon="@drawable/ic_share" />
+    <item
+        android:id="@+id/action_export_ortf"
+        android:title="@string/export_ortf_menu"
+        android:icon="@drawable/ic_share" />
+    <item
+        android:id="@+id/action_export_xy"
+        android:title="@string/export_xy_menu"
+        android:icon="@drawable/ic_share" />
+    <item
+        android:id="@+id/action_export_3oa"
+        android:title="@string/export_3oa_menu"
         android:icon="@drawable/ic_share" />
     <item
         android:id="@+id/action_delete"

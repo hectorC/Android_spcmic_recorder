@@ -8,6 +8,7 @@
 #define LOG_TAG "PlaybackJNI"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 using namespace spcmic;
 
@@ -78,6 +79,54 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeSetCacheDirectory(
     env->ReleaseStringUTFChars(cacheDirectory, dirChars);
 
     engine->setPreRenderCacheDirectory(dir);
+}
+
+JNIEXPORT void JNICALL
+Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeConfigureExportPreset(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong engineHandle,
+    jint presetId,
+    jint outputChannels,
+    jstring cacheFileName) {
+    LogJniProbe(env, "nativeConfigureExportPreset-entry", "PlaybackJNI");
+
+    PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
+    if (!engine) {
+        LOGE("Invalid engine handle in configureExportPreset");
+        return;
+    }
+
+    IRPreset preset = IRPreset::Binaural;
+    switch (presetId) {
+        case static_cast<jint>(IRPreset::Binaural):
+            preset = IRPreset::Binaural;
+            break;
+        case static_cast<jint>(IRPreset::Ortf):
+            preset = IRPreset::Ortf;
+            break;
+        case static_cast<jint>(IRPreset::Xy):
+            preset = IRPreset::Xy;
+            break;
+        case static_cast<jint>(IRPreset::ThirdOrderAmbisonic):
+            preset = IRPreset::ThirdOrderAmbisonic;
+            break;
+        default:
+            LOGW("Unknown preset id %d, defaulting to binaural", presetId);
+            preset = IRPreset::Binaural;
+            break;
+    }
+
+    std::string cacheName;
+    if (cacheFileName != nullptr) {
+        const char* chars = env->GetStringUTFChars(cacheFileName, nullptr);
+        if (chars) {
+            cacheName.assign(chars);
+            env->ReleaseStringUTFChars(cacheFileName, chars);
+        }
+    }
+
+    engine->configureExportPreset(preset, static_cast<int>(outputChannels), cacheName);
 }
 
 JNIEXPORT jboolean JNICALL

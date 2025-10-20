@@ -34,7 +34,6 @@ class PlaybackViewModel : ViewModel() {
         private const val TAG = "PlaybackViewModel"
         const val PREFS_NAME = "playback_cache_prefs"
         private const val PREF_LAST_CACHE_SOURCE = "last_cached_source"
-        private const val CACHE_FILE_NAME = "playback_cache.wav"
     }
 
     private sealed interface ExportOutcome {
@@ -390,7 +389,7 @@ class PlaybackViewModel : ViewModel() {
         _currentPosition.value = positionMs
     }
 
-    fun exportRecording(recording: Recording) {
+    fun exportRecording(recording: Recording, mixType: ExportMixType) {
         viewModelScope.launch {
             val assets = assetManager
             val cacheDir = cacheDirectory
@@ -398,7 +397,8 @@ class PlaybackViewModel : ViewModel() {
             val info = storageInfo
 
             if (assets == null || cacheDir == null || context == null) {
-                _statusMessage.value = PlaybackMessage(R.string.export_failure)
+                val mixLabel = context?.getString(mixType.labelResId) ?: ""
+                _statusMessage.value = PlaybackMessage(R.string.export_failure, listOf(mixLabel))
                 return@launch
             }
 
@@ -409,14 +409,19 @@ class PlaybackViewModel : ViewModel() {
 
                 var success = false
                 var outcome: ExportOutcome? = null
+                val mixLabel = context.getString(mixType.labelResId)
 
                 try {
-                    val cachedPreRender = playbackCacheForRecording(recording)
+                    val cachedPreRender = if (mixType.supportsCacheReuse) {
+                        playbackCacheForRecording(recording, mixType)
+                    } else {
+                        null
+                    }
                     var reuseSucceeded = false
 
                     if (cachedPreRender != null) {
                         outcome = withContext(Dispatchers.IO) {
-                            reuseCachedPreRenderForExport(cachedPreRender, recording, context, info)
+                            reuseCachedPreRenderForExport(cachedPreRender, recording, mixType, context, info)
                         }
                         reuseSucceeded = outcome != null
                         if (reuseSucceeded) {
@@ -424,6 +429,7 @@ class PlaybackViewModel : ViewModel() {
                             success = true
                         } else {
                             _processingProgress.value = 0
+                            clearCachedSourceForMix(mixType)
                         }
                     }
 
@@ -433,6 +439,11 @@ class PlaybackViewModel : ViewModel() {
                             engine.setPlaybackConvolved(true)
                             engine.setAssetManager(assets)
                             engine.setCacheDirectory(cacheDir)
+                            engine.configureExportPreset(
+                                mixType.presetId,
+                                mixType.outputChannels,
+                                mixType.cacheFileName
+                            )
 
                             val loadSuccess = withContext(Dispatchers.IO) {
                                 when {
@@ -446,7 +457,7 @@ class PlaybackViewModel : ViewModel() {
                             }
 
                             if (!loadSuccess) {
-                                _statusMessage.value = PlaybackMessage(R.string.export_failure)
+                                _statusMessage.value = PlaybackMessage(R.string.export_failure, listOf(mixLabel))
                                 return@withLock
                             }
 
@@ -478,7 +489,7 @@ class PlaybackViewModel : ViewModel() {
                                         recording.file?.exists() == true -> {
                                             val recordingDir = recording.file.parentFile ?: return@withContext null
                                             val exportDir = StorageLocationManager.ensureExportsDirectory(recordingDir)
-                                            val exportFile = File(exportDir, buildExportFileName(recording))
+                                            val exportFile = File(exportDir, buildExportFileName(recording, mixType.fileSuffix))
                                             if (engine.exportPreRendered(exportFile.absolutePath)) {
                                                 ExportOutcome.Local(exportFile)
                                             } else {
@@ -490,7 +501,7 @@ class PlaybackViewModel : ViewModel() {
                                             val treeUri = storage?.treeUri ?: return@withContext null
                                             val exportsDir = StorageLocationManager.ensureExportsDocumentDirectory(context, treeUri)
                                                 ?: return@withContext null
-                                            val targetName = buildExportFileName(recording)
+                                            val targetName = buildExportFileName(recording, mixType.fileSuffix)
                                             val tempFile = File(cacheDir, "export_temp_.wav")
                                             if (tempFile.exists()) {
                                                 tempFile.delete()
@@ -543,15 +554,23 @@ class PlaybackViewModel : ViewModel() {
                 }
 
                 if (success) {
-                    recording.cacheKey?.let { rememberCachedSource(it) }
+                    if (mixType.supportsCacheReuse) {
+                        recording.cacheKey?.let { rememberCachedSourceForMix(mixType, it) }
+                    }
                     val messageArg = when (val result = outcome) {
                         is ExportOutcome.Local -> result.file.name
                         is ExportOutcome.Document -> result.document.name ?: result.document.uri.toString()
                         else -> null
                     }
-                    _statusMessage.value = PlaybackMessage(R.string.export_success, listOfNotNull(messageArg))
+                    _statusMessage.value = PlaybackMessage(
+                        R.string.export_success,
+                        listOfNotNull(mixLabel, messageArg)
+                    )
                 } else {
-                    _statusMessage.value = PlaybackMessage(R.string.export_failure)
+                    _statusMessage.value = PlaybackMessage(
+                        R.string.export_failure,
+                        listOf(mixLabel)
+                    )
                 }
             }
         }
@@ -644,15 +663,16 @@ class PlaybackViewModel : ViewModel() {
         val engine = playbackEngine ?: return false
         val cacheDir = cacheDirectory ?: return false
         val cacheKey = recording.cacheKey ?: return false
-        val lastSource = lastCachedSource() ?: return false
+        val mixType = ExportMixType.BINAURAL
+        val lastSource = lastCachedSourceForMix(mixType) ?: return false
 
         if (lastSource != cacheKey) {
             return false
         }
 
-        val cacheFile = File(cacheDir, CACHE_FILE_NAME)
+        val cacheFile = File(cacheDir, mixType.cacheFileName)
         if (!cacheFile.exists()) {
-            clearCachedSource()
+            clearCachedSourceForMix(mixType)
             return false
         }
 
@@ -663,23 +683,32 @@ class PlaybackViewModel : ViewModel() {
         }.getOrDefault(false)
 
         if (reused) {
-            rememberCachedSource(cacheKey)
+            rememberCachedSourceForMix(mixType, cacheKey)
         } else {
-            clearCachedSource()
+            clearCachedSourceForMix(mixType)
         }
 
         return reused
     }
 
-    private fun rememberCachedSource(sourceKey: String) {
-        preferences?.edit()?.putString(PREF_LAST_CACHE_SOURCE, sourceKey)?.apply()
+    private fun rememberCachedSourceForMix(mixType: ExportMixType, sourceKey: String) {
+        preferences?.edit()?.putString(cachePreferenceKey(mixType), sourceKey)?.apply()
     }
 
-    private fun clearCachedSource() {
-        preferences?.edit()?.remove(PREF_LAST_CACHE_SOURCE)?.apply()
+    private fun clearCachedSourceForMix(mixType: ExportMixType) {
+        preferences?.edit()?.remove(cachePreferenceKey(mixType))?.apply()
     }
 
-    private fun lastCachedSource(): String? = preferences?.getString(PREF_LAST_CACHE_SOURCE, null)
+    private fun lastCachedSourceForMix(mixType: ExportMixType): String? =
+        preferences?.getString(cachePreferenceKey(mixType), null)
+
+    private fun cachePreferenceKey(mixType: ExportMixType): String {
+        return if (mixType == ExportMixType.BINAURAL) {
+            PREF_LAST_CACHE_SOURCE
+        } else {
+            "${PREF_LAST_CACHE_SOURCE}_${mixType.cacheSuffix}"
+        }
+    }
 
     fun getTotalStorageBytes(): Long {
         return _recordings.value?.sumOf { it.fileSizeBytes } ?: 0L
@@ -755,10 +784,12 @@ class PlaybackViewModel : ViewModel() {
                     val newDuration = engine.getDuration()
                     _totalDuration.value = (newDuration * 1000).toLong()
                     _currentPosition.value = 0L
-                    selectedRecording.value?.cacheKey?.let { key -> rememberCachedSource(key) }
+                    selectedRecording.value?.cacheKey?.let { key ->
+                        rememberCachedSourceForMix(ExportMixType.BINAURAL, key)
+                    }
                 } else {
                     _statusMessage.value = PlaybackMessage(R.string.preprocessing_failed)
-                    clearCachedSource()
+                    clearCachedSourceForMix(ExportMixType.BINAURAL)
                 }
 
                 success
@@ -768,20 +799,25 @@ class PlaybackViewModel : ViewModel() {
         }
     }
 
-    private fun playbackCacheForRecording(recording: Recording): File? {
-        val cacheDir = cacheDirectory ?: return null
-        val cacheKey = recording.cacheKey ?: return null
-        if (cacheKey != lastCachedSource()) {
+    private fun playbackCacheForRecording(recording: Recording, mixType: ExportMixType): File? {
+        if (!mixType.supportsCacheReuse) {
             return null
         }
 
-        val cacheFile = File(cacheDir, CACHE_FILE_NAME)
+        val cacheDir = cacheDirectory ?: return null
+        val cacheKey = recording.cacheKey ?: return null
+        if (cacheKey != lastCachedSourceForMix(mixType)) {
+            return null
+        }
+
+        val cacheFile = File(cacheDir, mixType.cacheFileName)
         return cacheFile.takeIf { it.exists() && it.length() > 0 }
     }
 
     private fun reuseCachedPreRenderForExport(
         cachedFile: File,
         recording: Recording,
+        mixType: ExportMixType,
         context: Context,
         storageInfo: StorageLocationManager.StorageInfo?
     ): ExportOutcome? {
@@ -789,7 +825,7 @@ class PlaybackViewModel : ViewModel() {
             recording.file?.exists() == true -> {
                 val recordingDir = recording.file.parentFile ?: return null
                 val exportDir = StorageLocationManager.ensureExportsDirectory(recordingDir)
-                val exportFile = File(exportDir, buildExportFileName(recording))
+                val exportFile = File(exportDir, buildExportFileName(recording, mixType.fileSuffix))
                 runCatching {
                     cachedFile.inputStream().use { input ->
                         exportFile.outputStream().use { output ->
@@ -803,7 +839,7 @@ class PlaybackViewModel : ViewModel() {
                 val treeUri = storageInfo?.treeUri ?: return null
                 val exportsDir = StorageLocationManager.ensureExportsDocumentDirectory(context, treeUri)
                     ?: return null
-                val targetName = buildExportFileName(recording)
+                val targetName = buildExportFileName(recording, mixType.fileSuffix)
                 val document = StorageLocationManager.createOrReplaceDocumentFile(exportsDir, targetName)
                     ?: return null
 
@@ -826,7 +862,7 @@ class PlaybackViewModel : ViewModel() {
 
 data class PlaybackMessage(@StringRes val resId: Int, val args: List<Any> = emptyList())
 
-private fun buildExportFileName(recording: Recording, suffix: String = "binaural"): String {
+private fun buildExportFileName(recording: Recording, suffix: String): String {
     val originalName = recording.file?.name ?: recording.fileName
     val base = originalName.substringBeforeLast('.', originalName).ifBlank { originalName }
     return "${base}_${suffix}.wav"

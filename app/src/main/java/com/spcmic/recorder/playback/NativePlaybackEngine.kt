@@ -21,6 +21,11 @@ class NativePlaybackEngine {
         System.loadLibrary("spcmic_playback")
         engineHandle = nativeCreate()
         if (engineHandle != 0L) {
+            configureExportPreset(
+                ExportMixType.BINAURAL.presetId,
+                ExportMixType.BINAURAL.outputChannels,
+                ExportMixType.BINAURAL.cacheFileName
+            )
             setPlaybackConvolved(false)
         }
     }
@@ -144,6 +149,10 @@ class NativePlaybackEngine {
         return nativeIsPlaybackConvolved(engineHandle)
     }
 
+    fun configureExportPreset(presetId: Int, outputChannels: Int, cacheFileName: String) {
+        nativeConfigureExportPreset(engineHandle, presetId, outputChannels, cacheFileName)
+    }
+
     fun exportPreRendered(destinationPath: String): Boolean {
         return nativeExportPreRendered(engineHandle, destinationPath)
     }
@@ -188,4 +197,5 @@ class NativePlaybackEngine {
     private external fun nativeExportPreRendered(engineHandle: Long, destinationPath: String): Boolean
     private external fun nativeSetPlaybackConvolved(engineHandle: Long, enabled: Boolean)
     private external fun nativeIsPlaybackConvolved(engineHandle: Long): Boolean
+    private external fun nativeConfigureExportPreset(engineHandle: Long, presetId: Int, outputChannels: Int, cacheFileName: String)
 }

@@ -245,7 +245,19 @@ class PlaybackFragment : Fragment() {
                         true
                     }
                     R.id.action_export_binaural -> {
-                        viewModel.exportRecording(recording)
+                        viewModel.exportRecording(recording, ExportMixType.BINAURAL)
+                        true
+                    }
+                    R.id.action_export_ortf -> {
+                        viewModel.exportRecording(recording, ExportMixType.ORTF)
+                        true
+                    }
+                    R.id.action_export_xy -> {
+                        viewModel.exportRecording(recording, ExportMixType.XY)
+                        true
+                    }
+                    R.id.action_export_3oa -> {
+                        viewModel.exportRecording(recording, ExportMixType.THIRD_ORDER_AMBISONIC)
                         true
                     }
                     else -> false

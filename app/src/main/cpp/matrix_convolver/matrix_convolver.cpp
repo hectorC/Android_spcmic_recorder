@@ -125,6 +125,7 @@ MatrixConvolver::MatrixConvolver()
     , ready_(false)
     , fftSize_(0)
     , numPartitions_(0)
+    , numOutputChannels_(0)
     , historyWritePos_(0)
     , outputGain_(1.0f)
     , singlePartition_(false) {
@@ -137,18 +138,24 @@ bool MatrixConvolver::configure(const MatrixImpulseResponse* ir, int blockSizeFr
         ready_ = false;
         channelStates_.clear();
         channelIRs_.clear();
-    freqAccumLeft_.clear();
-    freqAccumRight_.clear();
-        overlapLeft_.clear();
-        overlapRight_.clear();
+        freqAccum_.clear();
+        overlap_.clear();
         fftSize_ = 0;
         numPartitions_ = 0;
+        numOutputChannels_ = 0;
         historyWritePos_ = 0;
         return false;
     }
 
     impulseResponse_ = ir;
     blockSize_ = blockSizeFrames;
+    numOutputChannels_ = impulseResponse_->numOutputChannels;
+
+    if (numOutputChannels_ <= 0) {
+        LOGE("Impulse response reports zero output channels");
+        ready_ = false;
+        return false;
+    }
 
     if (!FftEngine::isPowerOfTwo(static_cast<size_t>(blockSize_))) {
         LOGE("MatrixConvolver requires power-of-two block size. Got %d", blockSize_);
@@ -176,33 +183,28 @@ bool MatrixConvolver::configure(const MatrixImpulseResponse* ir, int blockSizeFr
 
     for (int ch = 0; ch < impulseResponse_->numInputChannels; ++ch) {
         ChannelIR& channelIR = channelIRs_[ch];
-        channelIR.partitionsLeft.assign(numPartitions_, std::vector<std::complex<float>>(fftSize_, kZeroComplex));
-        channelIR.partitionsRight.assign(numPartitions_, std::vector<std::complex<float>>(fftSize_, kZeroComplex));
+        channelIR.partitions.assign(static_cast<size_t>(numOutputChannels_) * numPartitions_,
+                                    std::vector<std::complex<float>>(fftSize_, kZeroComplex));
 
-        for (int p = 0; p < numPartitions_; ++p) {
-            auto& leftPart = channelIR.partitionsLeft[p];
-            auto& rightPart = channelIR.partitionsRight[p];
-
-            const int baseIndex = ch * impulseResponse_->irLength + p * blockSize_;
-            for (int n = 0; n < blockSize_; ++n) {
-                const int irIndex = baseIndex + n;
-                if (irIndex < (ch + 1) * impulseResponse_->irLength) {
-                    const float leftSample = impulseResponse_->leftEar[irIndex];
-                    const float rightSample = impulseResponse_->rightEar[irIndex];
-                    leftPart[n] = std::complex<float>(leftSample, 0.0f);
-                    rightPart[n] = std::complex<float>(rightSample, 0.0f);
+        for (int outCh = 0; outCh < numOutputChannels_; ++outCh) {
+            const size_t impulseOffset = (static_cast<size_t>(outCh) * impulseResponse_->numInputChannels +
+                                          static_cast<size_t>(ch)) * static_cast<size_t>(impulseResponse_->irLength);
+            for (int p = 0; p < numPartitions_; ++p) {
+                auto& partition = channelIR.partitions[static_cast<size_t>(outCh) * numPartitions_ + p];
+                for (int n = 0; n < blockSize_; ++n) {
+                    const size_t irIndex = impulseOffset + static_cast<size_t>(p) * blockSize_ + static_cast<size_t>(n);
+                    if (irIndex < impulseOffset + static_cast<size_t>(impulseResponse_->irLength)) {
+                        const float sample = impulseResponse_->impulseData[irIndex];
+                        partition[n] = std::complex<float>(sample, 0.0f);
+                    }
                 }
+                FftEngine::forward(partition);
             }
-
-            FftEngine::forward(leftPart);
-            FftEngine::forward(rightPart);
         }
     }
 
-    freqAccumLeft_.assign(fftSize_, kZeroComplex);
-    freqAccumRight_.assign(fftSize_, kZeroComplex);
-    overlapLeft_.assign(blockSize_, 0.0f);
-    overlapRight_.assign(blockSize_, 0.0f);
+    freqAccum_.assign(numOutputChannels_, std::vector<std::complex<float>>(fftSize_, kZeroComplex));
+    overlap_.assign(numOutputChannels_, std::vector<float>(blockSize_, 0.0f));
     historyWritePos_ = 0;
 
     ready_ = true;
@@ -218,8 +220,9 @@ bool MatrixConvolver::configure(const MatrixImpulseResponse* ir, int blockSizeFr
 }
 
 void MatrixConvolver::reset() {
-    std::fill(overlapLeft_.begin(), overlapLeft_.end(), 0.0f);
-    std::fill(overlapRight_.begin(), overlapRight_.end(), 0.0f);
+    for (auto& overlapChannel : overlap_) {
+        std::fill(overlapChannel.begin(), overlapChannel.end(), 0.0f);
+    }
     historyWritePos_ = 0;
 
     for (auto& state : channelStates_) {
@@ -241,8 +244,9 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
         return;
     }
 
-    std::fill(freqAccumLeft_.begin(), freqAccumLeft_.end(), kZeroComplex);
-    std::fill(freqAccumRight_.begin(), freqAccumRight_.end(), kZeroComplex);
+    for (auto& accum : freqAccum_) {
+        std::fill(accum.begin(), accum.end(), kZeroComplex);
+    }
 
     const int numChannels = impulseResponse_->numInputChannels;
 
@@ -261,14 +265,13 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
 
             FftEngine::forward(spectrum);
 
-            const auto& leftIR = channelIRs_[ch].partitionsLeft[0];
-            const auto& rightIR = channelIRs_[ch].partitionsRight[0];
-
             #if defined(SPCMIC_ENABLE_ACCUM_TIMING)
             const auto accumStart = Clock::now();
             #endif
-            accumulatePartition(spectrum, leftIR, freqAccumLeft_);
-            accumulatePartition(spectrum, rightIR, freqAccumRight_);
+            for (int outCh = 0; outCh < numOutputChannels_; ++outCh) {
+                const auto& irPartition = channelIRs_[ch].partitions[static_cast<size_t>(outCh) * numPartitions_];
+                accumulatePartition(spectrum, irPartition, freqAccum_[outCh]);
+            }
             #if defined(SPCMIC_ENABLE_ACCUM_TIMING)
             accumulateMicros += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - accumStart).count();
             #endif
@@ -293,11 +296,10 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
             for (int p = 0; p < numPartitions_; ++p) {
                 const int histIndex = (historyWritePos_ - p + numPartitions_) % numPartitions_;
                 const auto& inputSpectrum = historyBlocks[histIndex];
-                const auto& leftIR = channelIR.partitionsLeft[p];
-                const auto& rightIR = channelIR.partitionsRight[p];
-
-                accumulatePartition(inputSpectrum, leftIR, freqAccumLeft_);
-                accumulatePartition(inputSpectrum, rightIR, freqAccumRight_);
+                for (int outCh = 0; outCh < numOutputChannels_; ++outCh) {
+                    const auto& irSpectrum = channelIR.partitions[static_cast<size_t>(outCh) * numPartitions_ + p];
+                    accumulatePartition(inputSpectrum, irSpectrum, freqAccum_[outCh]);
+                }
             }
             #if defined(SPCMIC_ENABLE_ACCUM_TIMING)
             accumulateMicros += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - accumStart).count();
@@ -308,19 +310,21 @@ void MatrixConvolver::process(const float* input, float* output, int numFrames) 
     }
 
     // Inverse FFT to obtain time-domain output
-    FftEngine::inverse(freqAccumLeft_);
-    FftEngine::inverse(freqAccumRight_);
-
-    for (int frame = 0; frame < blockSize_; ++frame) {
-    const float left = (freqAccumLeft_[frame].real() + overlapLeft_[frame]) * outputGain_;
-    const float right = (freqAccumRight_[frame].real() + overlapRight_[frame]) * outputGain_;
-    output[frame * 2] = left;
-    output[frame * 2 + 1] = right;
+    for (int outCh = 0; outCh < numOutputChannels_; ++outCh) {
+        FftEngine::inverse(freqAccum_[outCh]);
     }
 
     for (int frame = 0; frame < blockSize_; ++frame) {
-        overlapLeft_[frame] = freqAccumLeft_[frame + blockSize_].real();
-        overlapRight_[frame] = freqAccumRight_[frame + blockSize_].real();
+        for (int outCh = 0; outCh < numOutputChannels_; ++outCh) {
+            const float value = (freqAccum_[outCh][frame].real() + overlap_[outCh][frame]) * outputGain_;
+            output[frame * numOutputChannels_ + outCh] = value;
+        }
+    }
+
+    for (int frame = 0; frame < blockSize_; ++frame) {
+        for (int outCh = 0; outCh < numOutputChannels_; ++outCh) {
+            overlap_[outCh][frame] = freqAccum_[outCh][frame + blockSize_].real();
+        }
     }
 
     #if defined(SPCMIC_ENABLE_ACCUM_TIMING)
@@ -334,11 +338,13 @@ void MatrixConvolver::fallbackDownmix(const float* input, float* output, int num
     }
 
     const int numChannels = impulseResponse_ ? impulseResponse_->numInputChannels : kNumChannels;
+    const int outputs = numOutputChannels_ > 0 ? numOutputChannels_ : 2;
 
     for (int frame = 0; frame < numFrames; ++frame) {
-        const float ch0 = input[frame * numChannels];
-        output[frame * 2] = ch0;
-        output[frame * 2 + 1] = ch0;
+        const float sample = input[frame * numChannels];
+        for (int outCh = 0; outCh < outputs; ++outCh) {
+            output[frame * outputs + outCh] = sample;
+        }
     }
 }
 

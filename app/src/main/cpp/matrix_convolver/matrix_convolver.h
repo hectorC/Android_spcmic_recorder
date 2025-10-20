@@ -27,7 +27,7 @@ public:
     /**
      * Process a block of multichannel input.
      * @param input Interleaved float array: numFrames * numChannels samples.
-     * @param output Interleaved stereo float array: numFrames * 2 samples.
+    * @param output Interleaved float array: numFrames * numOutputChannels samples.
      * @param numFrames Number of frames in this block.
      */
     void process(const float* input, float* output, int numFrames);
@@ -38,8 +38,7 @@ private:
     };
 
     struct ChannelIR {
-        std::vector<std::vector<std::complex<float>>> partitionsLeft;
-        std::vector<std::vector<std::complex<float>>> partitionsRight;
+        std::vector<std::vector<std::complex<float>>> partitions; // [outputIndex * numPartitions_ + partition]
     };
 
     void fallbackDownmix(const float* input, float* output, int numFrames) const;
@@ -50,15 +49,14 @@ private:
 
     int fftSize_;
     int numPartitions_;
+    int numOutputChannels_;
     int historyWritePos_;
 
     std::vector<ChannelState> channelStates_;
     std::vector<ChannelIR> channelIRs_;
 
-    std::vector<std::complex<float>> freqAccumLeft_;
-    std::vector<std::complex<float>> freqAccumRight_;
-    std::vector<float> overlapLeft_;
-    std::vector<float> overlapRight_;
+    std::vector<std::vector<std::complex<float>>> freqAccum_;
+    std::vector<std::vector<float>> overlap_;
 
     float outputGain_;
     bool singlePartition_;

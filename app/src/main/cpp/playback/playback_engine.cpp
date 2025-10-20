@@ -17,7 +17,8 @@ namespace spcmic {
 
 namespace {
 
-constexpr const char* kCacheFileName = "playback_cache.wav";
+constexpr const char* kDefaultCacheFileName = "playback_cache.wav";
+constexpr int kDefaultOutputChannels = 2;
 
 std::string JoinPath(const std::string& dir, const std::string& file) {
     if (dir.empty()) {
@@ -43,6 +44,7 @@ PlaybackEngine::PlaybackEngine()
     , preRenderedFilePath_()
     , preRenderCacheDir_()
     , preRenderedSourcePath_()
+    , cacheFileName_(kDefaultCacheFileName)
     , preRenderedReady_(false)
     , usePreRendered_(false)
     , sourceSampleRate_(0)
@@ -52,12 +54,13 @@ PlaybackEngine::PlaybackEngine()
     , loopEnabled_(false)
     , preRenderProgress_(0)
     , preRenderInProgress_(false)
-    , playbackConvolved_(false) {
+    , playbackConvolved_(false)
+    , currentPreset_(IRPreset::Binaural)
+    , exportOutputChannels_(kDefaultOutputChannels) {
     
     // Allocate input buffer for 84 channels
     inputBuffer_.resize(BUFFER_FRAMES * 84);
-    stereoBuffer_.resize(BUFFER_FRAMES * 2);
-    stereo24Buffer_.resize(BUFFER_FRAMES * 2 * 3);
+    ensureOutputBufferCapacity(exportOutputChannels_);
     
     // Create audio output
     audioOutput_ = std::make_unique<AudioOutput>();
@@ -249,6 +252,31 @@ void PlaybackEngine::clearPreRenderedState() {
     preRenderedSourcePath_.clear();
     preRenderProgress_.store(0, std::memory_order_relaxed);
     preRenderInProgress_.store(false, std::memory_order_relaxed);
+}
+
+void PlaybackEngine::ensureOutputBufferCapacity(int outputChannels) {
+    const int channels = std::max(1, outputChannels);
+    mixBuffer_.resize(static_cast<size_t>(BUFFER_FRAMES) * channels);
+    mix24Buffer_.resize(static_cast<size_t>(BUFFER_FRAMES) * channels * 3);
+}
+
+void PlaybackEngine::configureExportPreset(IRPreset preset,
+                                           int outputChannels,
+                                           const std::string& cacheFileName) {
+    const int channels = outputChannels > 0 ? outputChannels : kDefaultOutputChannels;
+    const std::string resolvedCache = cacheFileName.empty() ? kDefaultCacheFileName : cacheFileName;
+
+    {
+        std::lock_guard<std::mutex> lock(fileMutex_);
+        currentPreset_ = preset;
+        exportOutputChannels_ = channels;
+        cacheFileName_ = resolvedCache;
+        impulseResponseLoaded_ = false;
+        matrixConvolver_.configure(nullptr, 0);
+        clearPreRenderedState();
+    }
+
+    ensureOutputBufferCapacity(channels);
 }
 
 bool PlaybackEngine::play() {
@@ -506,8 +534,9 @@ bool PlaybackEngine::loadImpulseResponse(int32_t sampleRate) {
     }
 
     MatrixImpulseResponse ir;
-    if (!irLoader_.loadBinaural(sampleRate, ir)) {
-        LOGE("Failed to load impulse response for %d Hz", sampleRate);
+    if (!irLoader_.loadPreset(currentPreset_, sampleRate, ir)) {
+        LOGE("Failed to load impulse response for preset %d at %d Hz",
+             static_cast<int>(currentPreset_), sampleRate);
         matrixConvolver_.configure(nullptr, 0);
         return false;
     }
@@ -520,42 +549,62 @@ bool PlaybackEngine::loadImpulseResponse(int32_t sampleRate) {
         return false;
     }
 
+    const int loadedOutputs = impulseResponse_.numOutputChannels;
+    if (loadedOutputs <= 0) {
+        LOGE("Impulse response reported zero output channels");
+        matrixConvolver_.configure(nullptr, 0);
+        return false;
+    }
+
+    if (loadedOutputs != exportOutputChannels_) {
+        LOGW("Configured output channel count %d differs from IR (%d). Using IR value.",
+             exportOutputChannels_, loadedOutputs);
+        exportOutputChannels_ = loadedOutputs;
+        ensureOutputBufferCapacity(exportOutputChannels_);
+    }
+
     constexpr int kMaxPartitions = 1;  // TEMP: keep IR within single FFT partition for performance
     const int maxIrLength = BUFFER_FRAMES * kMaxPartitions;
     const int originalIrLength = impulseResponse_.irLength;
     if (impulseResponse_.irLength > maxIrLength) {
         LOGW("Trimming IR from %d to %d samples to limit CPU load",
              impulseResponse_.irLength, maxIrLength);
-        const int numChannels = impulseResponse_.numInputChannels;
-        std::vector<float> trimmedLeft(static_cast<size_t>(numChannels) * maxIrLength);
-        std::vector<float> trimmedRight(static_cast<size_t>(numChannels) * maxIrLength);
+        const int numInputs = impulseResponse_.numInputChannels;
+        const int numOutputs = impulseResponse_.numOutputChannels;
+        std::vector<float> trimmed(static_cast<size_t>(numOutputs) * numInputs * maxIrLength);
 
-        for (int ch = 0; ch < numChannels; ++ch) {
-            const size_t srcOffset = static_cast<size_t>(ch) * impulseResponse_.irLength;
-            const size_t dstOffset = static_cast<size_t>(ch) * maxIrLength;
-            std::copy_n(impulseResponse_.leftEar.begin() + srcOffset, maxIrLength,
-                        trimmedLeft.begin() + dstOffset);
-            std::copy_n(impulseResponse_.rightEar.begin() + srcOffset, maxIrLength,
-                        trimmedRight.begin() + dstOffset);
+        for (int outCh = 0; outCh < numOutputs; ++outCh) {
+            for (int inCh = 0; inCh < numInputs; ++inCh) {
+                const size_t srcOffset = (static_cast<size_t>(outCh) * numInputs +
+                                          static_cast<size_t>(inCh)) * impulseResponse_.irLength;
+                const size_t dstOffset = (static_cast<size_t>(outCh) * numInputs +
+                                          static_cast<size_t>(inCh)) * maxIrLength;
+                std::copy_n(impulseResponse_.impulseData.begin() + srcOffset,
+                            maxIrLength,
+                            trimmed.begin() + dstOffset);
+            }
         }
 
-        impulseResponse_.leftEar = std::move(trimmedLeft);
-        impulseResponse_.rightEar = std::move(trimmedRight);
+        impulseResponse_.impulseData = std::move(trimmed);
         impulseResponse_.irLength = maxIrLength;
     }
 
     LOGD("Loaded IR: sampleRate=%d, irLength=%d (original %d), channels=%d",
-        impulseResponse_.sampleRate, impulseResponse_.irLength, originalIrLength, impulseResponse_.numInputChannels);
+        impulseResponse_.sampleRate,
+        impulseResponse_.irLength,
+        originalIrLength,
+        impulseResponse_.numInputChannels);
 
     if (!matrixConvolver_.configure(&impulseResponse_, BUFFER_FRAMES)) {
         LOGE("Matrix convolver configuration failed");
         return false;
     }
 
-    constexpr float kOutputGainDb = 12.0f;
-    const float gainFactor = std::pow(10.0f, kOutputGainDb / 20.0f);
+    const float gainDb = (impulseResponse_.numOutputChannels == 2) ? 12.0f : 0.0f;
+    const float gainFactor = std::pow(10.0f, gainDb / 20.0f);
     matrixConvolver_.setOutputGain(gainFactor);
-    LOGD("Matrix convolver ready (gain=%.2f)", gainFactor);
+    ensureOutputBufferCapacity(impulseResponse_.numOutputChannels);
+    LOGD("Matrix convolver ready (outputs=%d, gain=%.2f)", impulseResponse_.numOutputChannels, gainFactor);
 
     return true;
 }
@@ -600,12 +649,15 @@ bool PlaybackEngine::preparePreRenderedFile() {
     preRenderProgress_.store(0, std::memory_order_relaxed);
     preRenderInProgress_.store(true, std::memory_order_relaxed);
 
-    const std::string tempPath = JoinPath(preRenderCacheDir_, kCacheFileName);
+    const std::string tempPath = JoinPath(preRenderCacheDir_, cacheFileName_);
     LOGD("Pre-rendering source %s to %s", sourceFilePath_.c_str(), tempPath.c_str());
     std::remove(tempPath.c_str());
 
+    const int outputChannels = std::max(1, exportOutputChannels_);
+    ensureOutputBufferCapacity(outputChannels);
+
     WAVWriter writer;
-    if (!writer.open(tempPath, sourceSampleRate_, 2, 24)) {
+    if (!writer.open(tempPath, sourceSampleRate_, outputChannels, 24)) {
         LOGE("Failed to open pre-render target: %s", tempPath.c_str());
         preRenderInProgress_.store(false, std::memory_order_relaxed);
         preRenderProgress_.store(0, std::memory_order_relaxed);
@@ -618,22 +670,25 @@ bool PlaybackEngine::preparePreRenderedFile() {
     const int64_t totalFrames = wavReader_.getTotalFrames();
     bool ok = true;
 
-    auto convertTo24 = [this](int32_t frames) {
-        const float* src = stereoBuffer_.data();
-        uint8_t* dst = stereo24Buffer_.data();
+    auto convertTo24 = [this, outputChannels](int32_t frames) {
+        const float* src = mixBuffer_.data();
+        uint8_t* dst = mix24Buffer_.data();
 
         constexpr float kScale = 8388607.0f; // 2^23 - 1
-        for (int32_t i = 0; i < frames * 2; ++i) {
-            float sample = std::clamp(src[i], -1.0f, 1.0f);
-            int32_t value = static_cast<int32_t>(std::lrintf(sample * kScale));
-            if (value > 8388607) value = 8388607;
-            if (value < -8388608) value = -8388608;
+        const size_t stride = static_cast<size_t>(outputChannels);
+        for (int32_t frame = 0; frame < frames; ++frame) {
+            for (int32_t ch = 0; ch < outputChannels; ++ch) {
+                const size_t sampleIndex = static_cast<size_t>(frame) * stride + static_cast<size_t>(ch);
+                float sample = std::clamp(src[sampleIndex], -1.0f, 1.0f);
+                int32_t value = static_cast<int32_t>(std::lrintf(sample * kScale));
+                value = std::clamp(value, -8388608, 8388607);
 
-            const uint32_t uvalue = static_cast<uint32_t>(value);
-            const int32_t byteIndex = i * 3;
-            dst[byteIndex] = static_cast<uint8_t>(uvalue & 0xFF);
-            dst[byteIndex + 1] = static_cast<uint8_t>((uvalue >> 8) & 0xFF);
-            dst[byteIndex + 2] = static_cast<uint8_t>((uvalue >> 16) & 0xFF);
+                const uint32_t uvalue = static_cast<uint32_t>(value);
+                const size_t byteIndex = sampleIndex * 3;
+                dst[byteIndex] = static_cast<uint8_t>(uvalue & 0xFF);
+                dst[byteIndex + 1] = static_cast<uint8_t>((uvalue >> 8) & 0xFF);
+                dst[byteIndex + 2] = static_cast<uint8_t>((uvalue >> 16) & 0xFF);
+            }
         }
     };
 
@@ -649,7 +704,7 @@ bool PlaybackEngine::preparePreRenderedFile() {
                       0.0f);
         }
 
-        matrixConvolver_.process(inputBuffer_.data(), stereoBuffer_.data(), BUFFER_FRAMES);
+        matrixConvolver_.process(inputBuffer_.data(), mixBuffer_.data(), BUFFER_FRAMES);
 
         framesProcessed += framesRead;
         if (totalFrames > 0) {
@@ -666,8 +721,8 @@ bool PlaybackEngine::preparePreRenderedFile() {
         const int32_t framesToWrite = framesRead;
         convertTo24(framesToWrite);
 
-        if (!writer.writeData(stereo24Buffer_.data(),
-                              static_cast<size_t>(framesToWrite) * 2 * 3)) {
+        if (!writer.writeData(mix24Buffer_.data(),
+                              static_cast<size_t>(framesToWrite) * static_cast<size_t>(outputChannels) * 3)) {
             ok = false;
             break;
         }
@@ -676,12 +731,12 @@ bool PlaybackEngine::preparePreRenderedFile() {
             std::fill(inputBuffer_.begin(),
                       inputBuffer_.begin() + static_cast<size_t>(BUFFER_FRAMES) * sourceNumChannels_,
                       0.0f);
-            matrixConvolver_.process(inputBuffer_.data(), stereoBuffer_.data(), BUFFER_FRAMES);
+            matrixConvolver_.process(inputBuffer_.data(), mixBuffer_.data(), BUFFER_FRAMES);
 
             convertTo24(BUFFER_FRAMES);
 
-            if (!writer.writeData(stereo24Buffer_.data(),
-                                  static_cast<size_t>(BUFFER_FRAMES) * 2 * 3)) {
+            if (!writer.writeData(mix24Buffer_.data(),
+                                  static_cast<size_t>(BUFFER_FRAMES) * static_cast<size_t>(outputChannels) * 3)) {
                 ok = false;
             }
             break;
@@ -720,8 +775,10 @@ bool PlaybackEngine::preparePreRenderedFile() {
     state_ = State::STOPPED;
     preRenderedSourcePath_ = sourceFilePath_;
 
-    LOGD("Pre-rendered stereo mix created: %s (processed %lld frames)",
-         preRenderedFilePath_.c_str(), static_cast<long long>(framesProcessed));
+    LOGD("Pre-rendered mix created (%d ch): %s (processed %lld frames)",
+        outputChannels,
+        preRenderedFilePath_.c_str(),
+        static_cast<long long>(framesProcessed));
     preRenderProgress_.store(100, std::memory_order_relaxed);
     preRenderInProgress_.store(false, std::memory_order_relaxed);
     return true;
@@ -763,7 +820,7 @@ bool PlaybackEngine::useExistingPreRendered(const std::string& sourcePath) {
         return false;
     }
 
-    const std::string cachePath = JoinPath(preRenderCacheDir_, kCacheFileName);
+    const std::string cachePath = JoinPath(preRenderCacheDir_, cacheFileName_);
     std::ifstream cacheStream(cachePath, std::ios::binary);
     if (!cacheStream.is_open()) {
         LOGW("Cached pre-render file not found at %s", cachePath.c_str());
@@ -796,6 +853,8 @@ bool PlaybackEngine::useExistingPreRendered(const std::string& sourcePath) {
     sourceSampleRate_ = wavReader_.getSampleRate();
     sourceBitsPerSample_ = wavReader_.getBitsPerSample();
     sourceNumChannels_ = wavReader_.getNumChannels();
+    exportOutputChannels_ = sourceNumChannels_;
+    ensureOutputBufferCapacity(exportOutputChannels_);
     preRenderProgress_.store(100, std::memory_order_relaxed);
     preRenderInProgress_.store(false, std::memory_order_relaxed);
 

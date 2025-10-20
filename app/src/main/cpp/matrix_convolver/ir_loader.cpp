@@ -33,27 +33,49 @@ void IRLoader::setAssetManager(AAssetManager* manager) {
     assetManager_ = manager;
 }
 
-std::string IRLoader::buildBinauralAssetName(int sampleRateHz) {
-    if (sampleRateHz >= 96000) {
-        return "impulse_responses/binaural_96k.wav";
+std::string IRLoader::buildAssetName(IRPreset preset, int sampleRateHz) {
+    const char* base = nullptr;
+    switch (preset) {
+        case IRPreset::Binaural:
+            base = "binaural";
+            break;
+        case IRPreset::Ortf:
+            base = "ortf";
+            break;
+        case IRPreset::Xy:
+            base = "xy";
+            break;
+        case IRPreset::ThirdOrderAmbisonic:
+            base = "3oa";
+            break;
+        default:
+            base = "binaural";
+            break;
     }
-    return "impulse_responses/binaural_48k.wav";
+
+    const char* rateSuffix = (sampleRateHz >= 96000) ? "96k" : "48k";
+    std::string assetName = "impulse_responses/";
+    assetName += base;
+    assetName += "_";
+    assetName += rateSuffix;
+    assetName += ".wav";
+    return assetName;
 }
 
-bool IRLoader::loadBinaural(int sampleRateHz, MatrixImpulseResponse& outIR) {
+bool IRLoader::loadPreset(IRPreset preset, int sampleRateHz, MatrixImpulseResponse& outIR) {
     if (!assetManager_) {
         LOGW("Asset manager not set. Cannot load IR.");
         return false;
     }
 
-    const std::string assetName = buildBinauralAssetName(sampleRateHz);
+    const std::string assetName = buildAssetName(preset, sampleRateHz);
     if (!loadFromAsset(assetName, sampleRateHz, outIR)) {
-        LOGE("Failed to load binaural IR asset: %s", assetName.c_str());
+        LOGE("Failed to load IR asset: %s", assetName.c_str());
         return false;
     }
 
-    LOGD("Loaded binaural IR: %s (IR length=%d, channels=%d)",
-         assetName.c_str(), outIR.irLength, outIR.numInputChannels);
+    LOGD("Loaded IR: %s (IR length=%d, inputs=%d, outputs=%d)",
+         assetName.c_str(), outIR.irLength, outIR.numInputChannels, outIR.numOutputChannels);
     return true;
 }
 
@@ -141,8 +163,8 @@ bool IRLoader::loadFromAsset(const std::string& assetName,
         }
     }
 
-    if (numChannels != 2) {
-        LOGE("Expected stereo IR asset. Channels=%u", numChannels);
+    if (numChannels == 0) {
+        LOGE("IR asset %s has zero channels", assetName.c_str());
         return false;
     }
 
@@ -181,61 +203,57 @@ bool IRLoader::loadFromAsset(const std::string& assetName,
     const size_t irLength = totalFrames / kNumInputChannels;
     const uint8_t* samples = data + dataOffset;
 
-    std::vector<float> leftChannel(totalFrames);
-    std::vector<float> rightChannel(totalFrames);
+    std::vector<std::vector<float>> channelData(numChannels, std::vector<float>(totalFrames));
 
     if (bitsPerSample == 32 && audioFormat == 3) {
-        // 32-bit IEEE float
+        const size_t frameStride = static_cast<size_t>(numChannels) * bytesPerSample;
         for (size_t frame = 0; frame < totalFrames; ++frame) {
-            const size_t base = frame * 2 * bytesPerSample;
-            float leftValue;
-            float rightValue;
-            std::memcpy(&leftValue, samples + base, sizeof(float));
-            std::memcpy(&rightValue, samples + base + bytesPerSample, sizeof(float));
-            leftChannel[frame] = leftValue;
-            rightChannel[frame] = rightValue;
+            const size_t base = frame * frameStride;
+            for (uint16_t ch = 0; ch < numChannels; ++ch) {
+                float value;
+                std::memcpy(&value, samples + base + ch * bytesPerSample, sizeof(float));
+                channelData[ch][frame] = value;
+            }
         }
     } else {
         const float scale = (bitsPerSample == 32) ? (1.0f / 2147483648.0f)
-                                                 : (1.0f / 8388608.0f);
+                                                 : (bitsPerSample == 24 ? (1.0f / 8388608.0f)
+                                                                       : (1.0f / 32768.0f));
+        const size_t frameStride = static_cast<size_t>(numChannels) * bytesPerSample;
         for (size_t frame = 0; frame < totalFrames; ++frame) {
-            const size_t base = frame * 2 * bytesPerSample;
-
-            int32_t leftInt = 0;
-            int32_t rightInt = 0;
-            if (bitsPerSample == 32) {
-                leftInt = static_cast<int32_t>(ReadLE32(samples + base));
-                rightInt = static_cast<int32_t>(ReadLE32(samples + base + bytesPerSample));
-            } else { // 24-bit
-                const uint8_t* leftPtr = samples + base;
-                leftInt = (leftPtr[2] << 16) | (leftPtr[1] << 8) | leftPtr[0];
-                if (leftInt & 0x800000) {
-                    leftInt |= 0xFF000000;
+            const size_t base = frame * frameStride;
+            for (uint16_t ch = 0; ch < numChannels; ++ch) {
+                const uint8_t* samplePtr = samples + base + ch * bytesPerSample;
+                int32_t value = 0;
+                if (bitsPerSample == 32) {
+                    value = static_cast<int32_t>(ReadLE32(samplePtr));
+                } else if (bitsPerSample == 24) {
+                    value = (samplePtr[2] << 16) | (samplePtr[1] << 8) | samplePtr[0];
+                    if (value & 0x800000) {
+                        value |= 0xFF000000;
+                    }
+                } else { // 16-bit
+                    value = static_cast<int16_t>(samplePtr[0] | (samplePtr[1] << 8));
                 }
-
-                const uint8_t* rightPtr = samples + base + bytesPerSample;
-                rightInt = (rightPtr[2] << 16) | (rightPtr[1] << 8) | rightPtr[0];
-                if (rightInt & 0x800000) {
-                    rightInt |= 0xFF000000;
-                }
+                channelData[ch][frame] = static_cast<float>(value) * scale;
             }
-
-            leftChannel[frame] = static_cast<float>(leftInt) * scale;
-            rightChannel[frame] = static_cast<float>(rightInt) * scale;
         }
     }
 
     outIR.sampleRate = static_cast<int>(sampleRate);
     outIR.irLength = static_cast<int>(irLength);
     outIR.numInputChannels = kNumInputChannels;
-    outIR.leftEar.resize(static_cast<size_t>(kNumInputChannels) * irLength);
-    outIR.rightEar.resize(static_cast<size_t>(kNumInputChannels) * irLength);
+    outIR.numOutputChannels = numChannels;
+    outIR.impulseData.resize(static_cast<size_t>(numChannels) * kNumInputChannels * irLength);
 
-    for (int channel = 0; channel < kNumInputChannels; ++channel) {
-        const size_t srcOffset = static_cast<size_t>(channel) * irLength;
-        const size_t dstOffset = srcOffset;
-        std::copy_n(leftChannel.begin() + srcOffset, irLength, outIR.leftEar.begin() + dstOffset);
-        std::copy_n(rightChannel.begin() + srcOffset, irLength, outIR.rightEar.begin() + dstOffset);
+    for (uint16_t outChannel = 0; outChannel < numChannels; ++outChannel) {
+        const auto& channelVector = channelData[outChannel];
+        for (int inChannel = 0; inChannel < kNumInputChannels; ++inChannel) {
+            const size_t srcOffset = static_cast<size_t>(inChannel) * irLength;
+            const size_t dstOffset = (static_cast<size_t>(outChannel) * kNumInputChannels +
+                                      static_cast<size_t>(inChannel)) * irLength;
+            std::copy_n(channelVector.begin() + srcOffset, irLength, outIR.impulseData.begin() + dstOffset);
+        }
     }
 
     return outIR.isValid();

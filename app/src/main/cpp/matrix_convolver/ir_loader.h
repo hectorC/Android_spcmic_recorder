@@ -7,6 +7,13 @@
 
 namespace spcmic {
 
+enum class IRPreset {
+    Binaural = 0,
+    Ortf = 1,
+    Xy = 2,
+    ThirdOrderAmbisonic = 3
+};
+
 class IRLoader {
 public:
     IRLoader();
@@ -14,20 +21,17 @@ public:
     void setAssetManager(AAssetManager* manager);
 
     /**
-     * Load the binaural impulse response matching the requested sample rate.
+     * Load the impulse response matching the requested preset and sample rate.
      * Supported sample rates: 48000 Hz, 96000 Hz.
-     * @param sampleRateHz Recording sample rate to match.
-     * @param outIR Filled with impulse response data on success.
-     * @return true on success, false otherwise.
      */
-    bool loadBinaural(int sampleRateHz, MatrixImpulseResponse& outIR);
+    bool loadPreset(IRPreset preset, int sampleRateHz, MatrixImpulseResponse& outIR);
 
 private:
     bool loadFromAsset(const std::string& assetName,
                        int expectedSampleRate,
                        MatrixImpulseResponse& outIR);
 
-    static std::string buildBinauralAssetName(int sampleRateHz);
+    static std::string buildAssetName(IRPreset preset, int sampleRateHz);
 
     AAssetManager* assetManager_;
 };

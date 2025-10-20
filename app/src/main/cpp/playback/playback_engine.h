@@ -118,6 +118,11 @@ public:
     bool useExistingPreRendered(const std::string& sourcePath);
 
     /**
+     * Configure the IR preset, expected output channel count, and cache file name used for pre-renders.
+     */
+    void configureExportPreset(IRPreset preset, int outputChannels, const std::string& cacheFileName);
+
+    /**
      * Adjust playback gain in decibels (0 - 48 dB)
      */
     void setPlaybackGainDb(float gainDb);
@@ -171,6 +176,7 @@ private:
 
     bool loadImpulseResponse(int32_t sampleRate);
     void clearPreRenderedState();
+    void ensureOutputBufferCapacity(int outputChannels);
 
     WavFileReader wavReader_;
     StereoDownmix downmix_;
@@ -186,14 +192,15 @@ private:
 
     // Processing buffers
     std::vector<float> inputBuffer_;    // Multichannel buffer (max 84 channels)
-    std::vector<float> stereoBuffer_;   // Stereo processing buffer
-    std::vector<uint8_t> stereo24Buffer_; // Stereo 24-bit buffer for file writes
+    std::vector<float> mixBuffer_;      // Output buffer sized per preset
+    std::vector<uint8_t> mix24Buffer_;  // 24-bit buffer sized per preset
 
     AAssetManager* assetManager_;
     std::string sourceFilePath_;
     std::string preRenderedFilePath_;
     std::string preRenderCacheDir_;
     std::string preRenderedSourcePath_;
+    std::string cacheFileName_;
     bool preRenderedReady_;
     bool usePreRendered_;
     int32_t sourceSampleRate_;
@@ -204,6 +211,8 @@ private:
     std::atomic<int32_t> preRenderProgress_;
     std::atomic<bool> preRenderInProgress_;
     std::atomic<bool> playbackConvolved_;
+    IRPreset currentPreset_;
+    int exportOutputChannels_;
     
     static constexpr int32_t BUFFER_FRAMES = 4096;  // ~85ms at 48kHz to improve stability
     static constexpr int32_t DIRECT_LEFT_CHANNEL_INDEX = 24;  // channel 25 (1-based)
