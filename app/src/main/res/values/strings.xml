@@ -3,8 +3,8 @@
     <string name="app_name">spcmic Recorder</string>
     <string name="record_button_start">Start Recording</string>
     <string name="record_button_stop">Stop Recording</string>
-    <string name="usb_device_connected">USB Audio Device Connected</string>
-    <string name="usb_device_not_found">No USB Audio Device Found</string>
+    <string name="usb_device_connected">spcmic Connected</string>
+    <string name="usb_device_not_found">No spcmic Found</string>
     <string name="permission_required">Audio recording permission is required</string>
     <string name="recording_failed">Failed to start recording</string>
     <string name="refresh_devices">Reconnect</string>
