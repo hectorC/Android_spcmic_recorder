@@ -13,9 +13,9 @@ An Android app for capturing and reviewing the full 84-channel output of the spc
 - **Recording gain control** (0 to +48 dB) applied in the native capture pipeline before writing to disk, with clip detection for gain-induced overflows.
 - **Large-file support** by promoting recordings to RF64 once they exceed RIFF limits while keeping metadata aligned with the negotiated format.
 - **Destination directory selection** in the settings panel, to either internal storage or external USB storage (e.g., SSD with a USB-C hub so the spcmic can be simultaneously plugged)
-- **Native playback engine** with pre-processing caching to binaural (realtime playback is not yet possible), transport controls, and a gain stage from 0 dB to +48 dB for the binaural preview path.
+- **Native playback engine** now previews the array by routing capsule 25 (left) and capsule 53 (right) directly to stereo, delivering instant playback alongside transport controls and a 0 to +48 dB gain stage.
 - **Loop toggle** that restarts playback at EOF while keeping button state and engine behavior in sync.
-- **Export workflow** decoupled from playback: start an export from any recording, watch progress in the processing overlay.
+- **Export workflow** decoupled from playback: start a binaural, ORTF, XY, or third-order Ambisonic export from any recording and watch progress in the processing overlay.
 - **Dedicated exports directory** `Exports` created in the same directory as the recording target, keeping rendered mixes out of the source recording list.
 - **Per-take geolocation** with an opt-in toggle, status indicator, and single-shot fixes stored in a `spcmic_locations.gpx` sidecar (accuracy, altitude, and provider metadata included).
 
@@ -109,13 +109,13 @@ The app supports both direct filesystem access and SAF (external storage) for ma
 
 ## Playback & Export Workflow
 
-Playback as binaural 
+Playback preview now routes capsule 25 to the left ear and capsule 53 to the right for instant stereo monitoring, while the convolution engine remains available for offline exports.
 
 1. **Open a recording** – The playback screen lists top-level recordings only; exports are hidden to avoid duplication.
-2. **Adjust gain** – Drag the gain slider from 0 dB up to +48 dB for monitoring the binaural mix.
+2. **Adjust gain** – Drag the gain slider from 0 dB up to +48 dB while listening to the direct stereo pair (capsule 25 → left, capsule 53 → right).
 3. **Toggle looping** – Use the loop button to restart playback at EOF. State persists across configuration changes and mirrors the native engine.
-4. **Watch the processing overlay** – Preprocessing or export operations surface progress in the shared overlay so you can track background work.
-5. **Export binaural audio** – Choose *Export* from the overflow menu to render a stereo mix while playback remains ready. Completed exports land in `/Documents/spcmicRecorder/Exports/`.
+4. **Watch the processing overlay** – Export and pre-render operations surface progress in the shared overlay so you can track background work.
+5. **Export mixes** – Use the overflow menu to render Binaural, ORTF, XY, or third-order Ambisonic (16-channel) files. Completed exports land in `/Exports/` inisde the selected recording target directory.
 6. **Delete recordings** – Use the overflow delete action to remove unwanted takes; confirmations prevent accidental loss.
 
 ## Architecture Notes
@@ -127,7 +127,7 @@ Playback as binaural
 - **64 URB queue** providing ~6-7 seconds of USB buffering plus ~3 seconds in the application ring buffer for resilience against system load.
 - **Foreground service** with URGENT_AUDIO priority ensuring the recording process receives preferential CPU scheduling.
 - **Native USB recording pipeline** built with C++ using Linux URBs (USB Request Blocks) for precise control over isochronous transfers and buffer management.
-- **OpenSL ES playback engine** for low-latency binaural monitoring with gain control and looping.
+- **OpenSL ES playback engine** for low-latency direct stereo monitoring (capsules 25/53) plus the offline renderer that powers binaural, ORTF, XY, and 3OA exports.
 - **Geolocation pipeline** that bridges the Fused Location Provider to the UI and GPX writer, capturing metadata exactly once per take and keeping the Kotlin/GPX layers in sync on deletes and reconnects.
 - **JNI bridge** exposing playback transport, gain control, export hooks, and recording state transitions to Kotlin.
 - **Material Design 3** theming with light/dark support and accessibility-focused controls.
@@ -146,7 +146,7 @@ Playback as binaural
 
 ## Roadmap
 
-- Expand export presets beyond the current binaural mix.
+- Collect feedback on the new export presets and prioritize the next round of mixing features.
 
 ## License & Contributions
 
