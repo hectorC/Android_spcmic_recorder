@@ -321,6 +321,38 @@ Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeIsLooping(
     return engine->isLooping() ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT void JNICALL
+Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeSetPlaybackConvolved(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong engineHandle,
+    jboolean enabled) {
+    LogJniProbe(env, "nativeSetPlaybackConvolved-entry", "PlaybackJNI");
+
+    PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
+    if (!engine) {
+        LOGE("Invalid engine handle in setPlaybackConvolved");
+        return;
+    }
+
+    engine->setPlaybackConvolved(enabled == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeIsPlaybackConvolved(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong engineHandle) {
+    LogJniProbe(env, "nativeIsPlaybackConvolved-entry", "PlaybackJNI");
+
+    PlaybackEngine* engine = reinterpret_cast<PlaybackEngine*>(engineHandle);
+    if (!engine) {
+        return JNI_FALSE;
+    }
+
+    return engine->isPlaybackConvolved() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_spcmic_recorder_playback_NativePlaybackEngine_nativeExportPreRendered(
     JNIEnv* env,

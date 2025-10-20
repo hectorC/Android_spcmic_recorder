@@ -51,7 +51,8 @@ PlaybackEngine::PlaybackEngine()
     , playbackGainLinear_(1.0f)
     , loopEnabled_(false)
     , preRenderProgress_(0)
-    , preRenderInProgress_(false) {
+    , preRenderInProgress_(false)
+    , playbackConvolved_(false) {
     
     // Allocate input buffer for 84 channels
     inputBuffer_.resize(BUFFER_FRAMES * 84);
@@ -111,7 +112,12 @@ bool PlaybackEngine::loadFile(const std::string& filePath) {
         sourceNumChannels_ = numChannels;
     }
 
-    impulseResponseLoaded_ = loadImpulseResponse(sampleRate);
+    if (playbackConvolved_.load(std::memory_order_relaxed)) {
+        impulseResponseLoaded_ = loadImpulseResponse(sampleRate);
+    } else {
+        impulseResponseLoaded_ = false;
+        matrixConvolver_.configure(nullptr, 0);
+    }
     {
         std::lock_guard<std::mutex> lock(fileMutex_);
         wavReader_.seek(0);
@@ -186,7 +192,12 @@ bool PlaybackEngine::loadFileFromDescriptor(int fd, const std::string& displayPa
         sourceNumChannels_ = numChannels;
     }
 
-    impulseResponseLoaded_ = loadImpulseResponse(sampleRate);
+    if (playbackConvolved_.load(std::memory_order_relaxed)) {
+        impulseResponseLoaded_ = loadImpulseResponse(sampleRate);
+    } else {
+        impulseResponseLoaded_ = false;
+        matrixConvolver_.configure(nullptr, 0);
+    }
     {
         std::lock_guard<std::mutex> lock(fileMutex_);
         wavReader_.seek(0);
@@ -246,9 +257,28 @@ bool PlaybackEngine::play() {
         return false;
     }
 
-    if (!preRenderedReady_) {
-        LOGW("Pre-rendered file not ready; call preparePreRenderedFile() first");
-        return false;
+    const bool useConvolved = playbackConvolved_.load(std::memory_order_relaxed);
+
+    if (useConvolved) {
+        if (!preRenderedReady_) {
+            LOGW("Pre-rendered file not ready; call preparePreRenderedFile() first");
+            return false;
+        }
+    } else {
+        std::lock_guard<std::mutex> lock(fileMutex_);
+        if (usePreRendered_ && !sourceFilePath_.empty()) {
+            LOGD("Direct playback requested; reopening original multichannel file");
+            wavReader_.close();
+            if (!wavReader_.open(sourceFilePath_)) {
+                LOGE("Failed to reopen original source for direct playback: %s", sourceFilePath_.c_str());
+                return false;
+            }
+            if (!wavReader_.seek(0)) {
+                LOGW("Failed to seek original source after reopen");
+            }
+            usePreRendered_ = false;
+            preRenderedReady_ = false;
+        }
     }
 
     if (state_ == State::PLAYING) {
@@ -344,7 +374,14 @@ void PlaybackEngine::audioCallback(float* output, int32_t numFrames) {
 void PlaybackEngine::processAudio(float* output, int32_t numFrames) {
     std::lock_guard<std::mutex> lock(fileMutex_);
 
-    if (!preRenderedReady_) {
+    const bool useConvolved = playbackConvolved_.load(std::memory_order_relaxed);
+
+    if (useConvolved && !preRenderedReady_) {
+        memset(output, 0, numFrames * 2 * sizeof(float));
+        return;
+    }
+
+    if (!wavReader_.isOpen()) {
         memset(output, 0, numFrames * 2 * sizeof(float));
         return;
     }
@@ -417,10 +454,39 @@ void PlaybackEngine::processAudio(float* output, int32_t numFrames) {
         }
     }
 
+    int32_t leftIndex = 0;
+    int32_t rightIndex = std::min(1, std::max(fileChannels - 1, 0));
+
+    if (!useConvolved) {
+        bool channelFallback = false;
+        if (DIRECT_LEFT_CHANNEL_INDEX < fileChannels) {
+            leftIndex = DIRECT_LEFT_CHANNEL_INDEX;
+        } else {
+            channelFallback = true;
+        }
+
+        if (DIRECT_RIGHT_CHANNEL_INDEX < fileChannels) {
+            rightIndex = DIRECT_RIGHT_CHANNEL_INDEX;
+        } else {
+            channelFallback = true;
+            const int32_t lastChannel = std::max(fileChannels - 1, 0);
+            rightIndex = std::min(lastChannel, leftIndex);
+        }
+
+        if (channelFallback) {
+            static bool loggedFallback = false;
+            if (!loggedFallback) {
+                LOGW("Direct playback fallback: file has %d channels, expected > %d", fileChannels, DIRECT_RIGHT_CHANNEL_INDEX);
+                loggedFallback = true;
+            }
+        }
+    }
+
     for (int32_t frame = 0; frame < numFrames; ++frame) {
         if (frame < framesRead) {
-            float left = inputBuffer_[frame * fileChannels];
-            float right = (fileChannels > 1) ? inputBuffer_[frame * fileChannels + 1] : left;
+            const float* frameBase = inputBuffer_.data() + static_cast<size_t>(frame) * fileChannels;
+            float left = frameBase[leftIndex];
+            float right = (fileChannels > rightIndex) ? frameBase[rightIndex] : frameBase[leftIndex];
             left *= gain;
             right *= gain;
             output[frame * 2] = left;
@@ -687,6 +753,11 @@ bool PlaybackEngine::exportPreRenderedFile(const std::string& destinationPath) {
 }
 
 bool PlaybackEngine::useExistingPreRendered(const std::string& sourcePath) {
+    if (!playbackConvolved_.load(std::memory_order_relaxed)) {
+        LOGW("Convolved playback disabled; ignoring cached pre-render request");
+        return false;
+    }
+
     if (preRenderCacheDir_.empty()) {
         LOGW("Cache directory not configured; cannot reuse pre-render");
         return false;
@@ -763,6 +834,30 @@ int32_t PlaybackEngine::getPreRenderProgress() const {
 
 bool PlaybackEngine::isPreRenderInProgress() const {
     return preRenderInProgress_.load(std::memory_order_relaxed);
+}
+
+void PlaybackEngine::setPlaybackConvolved(bool enabled) {
+    const bool previous = playbackConvolved_.exchange(enabled, std::memory_order_relaxed);
+    if (!enabled && previous) {
+        std::lock_guard<std::mutex> lock(fileMutex_);
+        if (usePreRendered_ && !sourceFilePath_.empty()) {
+            LOGD("Disabling convolved playback; restoring original multichannel source");
+            wavReader_.close();
+            if (wavReader_.open(sourceFilePath_)) {
+                if (!wavReader_.seek(0)) {
+                    LOGW("Failed to seek original source after disabling convolved playback");
+                }
+            } else {
+                LOGE("Failed to reopen original source while disabling convolved playback: %s", sourceFilePath_.c_str());
+            }
+            usePreRendered_ = false;
+        }
+        preRenderedReady_ = false;
+    }
+}
+
+bool PlaybackEngine::isPlaybackConvolved() const {
+    return playbackConvolved_.load(std::memory_order_relaxed);
 }
 
 } // namespace spcmic

@@ -90,6 +90,7 @@ class PlaybackViewModel : ViewModel() {
     private var cacheDirectory: String? = null
     private var preferences: SharedPreferences? = null
     private val preprocessMutex = Mutex()
+    private var playbackConvolvedEnabled = false
 
     private var appContext: Context? = null
     private var storageInfo: StorageLocationManager.StorageInfo? = null
@@ -246,12 +247,14 @@ class PlaybackViewModel : ViewModel() {
                 val engine = playbackEngine ?: NativePlaybackEngine().also { playbackEngine = it }
                 assetManager?.let { engine.setAssetManager(it) }
                 cacheDirectory?.let { engine.setCacheDirectory(it) }
+                engine.setPlaybackConvolved(playbackConvolvedEnabled)
                 engine.setPlaybackGain(_playbackGainDb.value ?: 0f)
                 engine.setLooping(_isLooping.value ?: false)
+                playbackConvolvedEnabled = engine.isPlaybackConvolved()
 
                 val loaded = loadRecordingIntoEngine(recording)
                 if (loaded) {
-                    val reused = tryReuseCachedPreRender(recording)
+                    val reused = if (playbackConvolvedEnabled) tryReuseCachedPreRender(recording) else false
                     val durationMs = (engine.getDuration() * 1000).toLong()
 
                     withContext(Dispatchers.Main) {
@@ -260,9 +263,9 @@ class PlaybackViewModel : ViewModel() {
                         _currentPosition.value = 0L
                         _isPlaying.value = false
                         _isProcessing.value = false
-                        _processingProgress.value = if (reused) 100 else 0
+                        _processingProgress.value = if (playbackConvolvedEnabled && reused) 100 else 0
                         _processingMessage.value = R.string.preprocessing_message
-                        _statusMessage.value = if (reused) {
+                        _statusMessage.value = if (playbackConvolvedEnabled && reused) {
                             PlaybackMessage(R.string.playback_cached_ready)
                         } else {
                             null
@@ -306,6 +309,7 @@ class PlaybackViewModel : ViewModel() {
         stopPlayback()
         playbackEngine?.release()
         playbackEngine = null
+        playbackConvolvedEnabled = false
 
         _selectedRecording.value = null
         _isPlaying.value = false
@@ -329,6 +333,17 @@ class PlaybackViewModel : ViewModel() {
 
     fun play() {
         val engine = playbackEngine ?: return
+
+        if (!playbackConvolvedEnabled) {
+            if (engine.play()) {
+                _isPlaying.value = true
+                _currentPosition.value = 0L
+                startPositionUpdates()
+            } else {
+                _statusMessage.value = PlaybackMessage(R.string.playback_not_ready)
+            }
+            return
+        }
 
         if (engine.isPreRenderReady()) {
             if (engine.play()) {
@@ -415,6 +430,7 @@ class PlaybackViewModel : ViewModel() {
                     if (!reuseSucceeded) {
                         val engine = NativePlaybackEngine()
                         try {
+                            engine.setPlaybackConvolved(true)
                             engine.setAssetManager(assets)
                             engine.setCacheDirectory(cacheDir)
 
@@ -621,6 +637,10 @@ class PlaybackViewModel : ViewModel() {
     }
 
     private fun tryReuseCachedPreRender(recording: Recording): Boolean {
+        if (!playbackConvolvedEnabled) {
+            return false
+        }
+
         val engine = playbackEngine ?: return false
         val cacheDir = cacheDirectory ?: return false
         val cacheKey = recording.cacheKey ?: return false
@@ -684,6 +704,10 @@ class PlaybackViewModel : ViewModel() {
 
     private suspend fun ensurePreprocessed(): Boolean {
         val engine = playbackEngine ?: return false
+        if (!playbackConvolvedEnabled) {
+            _processingProgress.value = 0
+            return true
+        }
         if (engine.isPreRenderReady()) {
             _processingProgress.value = 100
             return true

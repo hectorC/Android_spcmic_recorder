@@ -20,6 +20,9 @@ class NativePlaybackEngine {
     init {
         System.loadLibrary("spcmic_playback")
         engineHandle = nativeCreate()
+        if (engineHandle != 0L) {
+            setPlaybackConvolved(false)
+        }
     }
 
     /**
@@ -133,6 +136,14 @@ class NativePlaybackEngine {
         return nativeIsLooping(engineHandle)
     }
 
+    fun setPlaybackConvolved(enabled: Boolean) {
+        nativeSetPlaybackConvolved(engineHandle, enabled)
+    }
+
+    fun isPlaybackConvolved(): Boolean {
+        return nativeIsPlaybackConvolved(engineHandle)
+    }
+
     fun exportPreRendered(destinationPath: String): Boolean {
         return nativeExportPreRendered(engineHandle, destinationPath)
     }
@@ -175,4 +186,6 @@ class NativePlaybackEngine {
     private external fun nativeSetLooping(engineHandle: Long, enabled: Boolean)
     private external fun nativeIsLooping(engineHandle: Long): Boolean
     private external fun nativeExportPreRendered(engineHandle: Long, destinationPath: String): Boolean
+    private external fun nativeSetPlaybackConvolved(engineHandle: Long, enabled: Boolean)
+    private external fun nativeIsPlaybackConvolved(engineHandle: Long): Boolean
 }

@@ -147,6 +147,17 @@ public:
      */
     bool isPreRenderInProgress() const;
 
+    /**
+     * Configure whether playback should use the pre-convolved stereo cache.
+     * When disabled, playback streams the original multichannel file directly.
+     */
+    void setPlaybackConvolved(bool enabled);
+
+    /**
+     * Query whether playback is currently configured to use the convolved cache.
+     */
+    bool isPlaybackConvolved() const;
+
 private:
     /**
      * Audio callback - fills output buffer
@@ -192,8 +203,11 @@ private:
     std::atomic<bool> loopEnabled_;
     std::atomic<int32_t> preRenderProgress_;
     std::atomic<bool> preRenderInProgress_;
+    std::atomic<bool> playbackConvolved_;
     
     static constexpr int32_t BUFFER_FRAMES = 4096;  // ~85ms at 48kHz to improve stability
+    static constexpr int32_t DIRECT_LEFT_CHANNEL_INDEX = 24;  // channel 25 (1-based)
+    static constexpr int32_t DIRECT_RIGHT_CHANNEL_INDEX = 52; // channel 53 (1-based)
 
     mutable std::mutex loadMutex_; // Serializes load/configure cycles across threads
 };
