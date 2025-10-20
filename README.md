@@ -1,4 +1,4 @@
-**Note (written by a human):** Contains AI generated code and functionality description text (with a bit of AI hyperbole). This app is currently functional overall but it might be still unstable and contain bugs. Use at your own risk.
+**Note (written by a human):** Contains AI generated code and functionality description text (with a bit of AI hyperbole). This app is currently functional overall but it could still be unstable or buggy. Use at your own risk.
 
 # spcmic Recorder & Playback
 
@@ -16,6 +16,7 @@ An Android app for capturing and reviewing the full 84-channel output of the spc
 - **Loop toggle** that restarts playback at EOF while keeping button state and engine behavior in sync.
 - **Export workflow** decoupled from playback: start an export from any recording, watch progress in the processing overlay, and leave playback ready the whole time.
 - **Dedicated exports directory** at `/storage/emulated/0/Documents/spcmicRecorder/Exports/`, keeping rendered mixes out of the source recording list.
+- **Per-take geolocation** with an opt-in toggle, status indicator, and single-shot fixes stored in a `spcmic_locations.gpx` sidecar (accuracy, altitude, and provider metadata included).
 - **Overflow menu cleanup** with a working delete action, confirmation dialog, and automatic UI refresh.
 
 ## Requirements
@@ -85,10 +86,11 @@ When connecting the spcmic, accept the USB permission dialog and choose "Use by 
 2. **Launch the recorder view** – The app auto-requests the default 48 kHz rate and displays both requested and negotiated values (see settings menu).
 3. **Select a sample rate** – Use the spinner to pick among the rates advertised by the interface/alt-setting (e.g., 48 kHz, 96 kHz).
 4. **Adjust gain** – Use the gain slider (0 to +48 dB) to boost input levels. Gain is applied in the native capture pipeline and written into the file. The level meter and clipping detector operate post-gain.
-5. **Start monitoring** – Tap **START MONITORING** to begin USB streaming. The level meter shows the real-time peak level of the loudest channel, with color zones (green/yellow/red) indicating headroom. If any channel clips, a warning icon appears and the meter stays red until you tap to clear.
-6. **Start recording** – Once levels look appropriate, tap **START RECORDING** to open a timestamped WAV file (e.g., `spcmic_recording_YYYYMMDD_HHMMSS.wav`) and begin writing audio to disk. The UI displays elapsed time.
-7. **Stop recording** – Tap **STOP RECORDING** to finalize the file. Headers are back-filled with the negotiated format before the file is closed. When the payload exceeds 4 GB, the writer upgrades the container to RF64 and patches the ds64 chunk before close.
-8. **Abort monitoring** – Long-press the button during monitoring to exit USB streaming without recording a file.
+5. **(Optional) Enable geolocation** – Toggle the location switch on the timecode card to capture a single high-accuracy fix at the end of each take. Grant fine location permission when prompted; the status pill updates from *Disabled* → *Searching* → *Locked*.
+6. **Start monitoring** – Tap **START MONITORING** to begin USB streaming. The level meter shows the real-time peak level of the loudest channel, with color zones (green/yellow/red) indicating headroom. If any channel clips, a warning icon appears and the meter stays red until you tap to clear.
+7. **Start recording** – Once levels look appropriate, tap **START RECORDING** to open a timestamped WAV file (e.g., `spcmic_recording_YYYYMMDD_HHMMSS.wav`) and begin writing audio to disk. The UI displays elapsed time.
+8. **Stop recording** – Tap **STOP RECORDING** to finalize the file. Headers are back-filled with the negotiated format before the file is closed. When the payload exceeds 4 GB, the writer upgrades the container to RF64 and patches the ds64 chunk before close.
+9. **Abort monitoring** – Long-press the button during monitoring to exit USB streaming without recording a file.
 
 Recorded WAV files can be saved to:
 
@@ -96,6 +98,13 @@ Recorded WAV files can be saved to:
 - **Custom location**: Use the "Storage Location" button in the Record tab to select any directory via Storage Access Framework (SAF)
 
 The app supports both direct filesystem access and SAF for maximum flexibility.
+
+### Geolocation & GPX Sidecar
+
+- Location capture is disabled by default. When enabled, the recorder requests a foreground single-shot fix from the Fused Location Provider when you stop recording or monitoring.
+- A status indicator on the timecode card reflects permission and fix state; a location icon appears when the take is tagged.
+- Per-take metadata (latitude/longitude, timestamp, accuracy, optional altitude, and provider string) is persisted in `spcmic_locations.gpx` alongside the recording folder. Storage Access Framework targets receive the same GPX file via `DocumentsContract` writes.
+- Deleting a take from the playback list removes any matching `<wpt>` entry (case-insensitive) and deletes the sidecar when it becomes empty.
 
 ## Playback & Export Workflow
 
@@ -112,6 +121,7 @@ The app supports both direct filesystem access and SAF for maximum flexibility.
 - `app/src/main/java/com/spcmic/recorder/playback/PlaybackFragment.kt` – Playback UI, gain slider, loop toggle, export menu, and delete dialog.
 - `app/src/main/java/com/spcmic/recorder/playback/PlaybackViewModel.kt` – LiveData state for playback, looping, gain, exports, and the processing overlay.
 - `app/src/main/java/com/spcmic/recorder/playback/NativePlaybackEngine.kt` – Kotlin interface to the native engine via JNI.
+- `app/src/main/java/com/spcmic/recorder/location/` – Opt-in geolocation toggle, preferences, single-shot capture manager, and GPX persistence utilities.
 - `app/src/main/cpp/multichannel_recorder.cpp` – USB capture threads, ring buffer coordination, and clip detection.
 - `app/src/main/cpp/wav_writer.cpp` – WAV/RF64 writer that back-fills headers for large files.
 - `app/src/main/cpp/playback/` – C++ audio engine handling caching, gain staging, looping, and export rendering.
@@ -127,6 +137,7 @@ The app supports both direct filesystem access and SAF for maximum flexibility.
 - **Foreground service** with URGENT_AUDIO priority ensuring the recording process receives preferential CPU scheduling.
 - **Native USB recording pipeline** built with C++ using Linux URBs (USB Request Blocks) for precise control over isochronous transfers and buffer management.
 - **OpenSL ES playback engine** for low-latency binaural monitoring with gain control and looping.
+- **Geolocation pipeline** that bridges the Fused Location Provider to the UI and GPX writer, capturing metadata exactly once per take and keeping the Kotlin/GPX layers in sync on deletes and reconnects.
 - **JNI bridge** exposing playback transport, gain control, export hooks, and recording state transitions to Kotlin.
 - **Material Design 3** theming with light/dark support and accessibility-focused controls.
 - **Coroutines** orchestrating preprocessing, export rendering, and UI state updates without blocking the main thread.
