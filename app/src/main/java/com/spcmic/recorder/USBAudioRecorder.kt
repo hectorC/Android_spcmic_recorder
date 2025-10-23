@@ -104,6 +104,15 @@ class USBAudioRecorder(
     
     fun connectToDevice(device: UsbDevice): Boolean {
         android.util.Log.i("USBAudioRecorder", "Attempting to connect to USB device: ${device.deviceName}")
+
+        val state = viewModel.recorderState.value
+        if (state != null && state != RecorderState.IDLE) {
+            android.util.Log.w(
+                "USBAudioRecorder",
+                "connectToDevice ignored while recorder state is $state"
+            )
+            return false
+        }
         
         // Check if permission is already granted
         if (usbManager.hasPermission(device)) {
@@ -128,7 +137,64 @@ class USBAudioRecorder(
         usbManager.requestPermission(device, permissionIntent)
     }
     
+    private fun closeExistingConnection(reason: String) {
+        val existingConnection = usbConnection ?: return
+        android.util.Log.i("USBAudioRecorder", "Closing existing USB connection ($reason)")
+
+        if (isNativeInitialized) {
+            try {
+                releaseNativeAudio()
+            } catch (e: UnsatisfiedLinkError) {
+                android.util.Log.w("USBAudioRecorder", "Native library unavailable during release", e)
+            } catch (e: Exception) {
+                android.util.Log.e("USBAudioRecorder", "Exception while releasing native audio", e)
+            }
+            isNativeInitialized = false
+        }
+
+        usbDevice?.let { device ->
+            for (i in 0 until device.configurationCount) {
+                val config = device.getConfiguration(i)
+                for (j in 0 until config.interfaceCount) {
+                    val usbInterface = config.getInterface(j)
+                    try {
+                        existingConnection.releaseInterface(usbInterface)
+                    } catch (e: Exception) {
+                        android.util.Log.w(
+                            "USBAudioRecorder",
+                            "Failed to release interface ${usbInterface.id} during reconnect",
+                            e
+                        )
+                    }
+                }
+            }
+        }
+
+        runCatching { existingConnection.close() }.onFailure {
+            android.util.Log.e("USBAudioRecorder", "Error closing USB connection", it)
+        }
+
+        usbConnection = null
+        usbDevice = null
+        activeRecordingPfd?.closeSafely()
+        activeRecordingPfd = null
+    }
+
     private fun connectToDeviceInternal(device: UsbDevice): Boolean {
+        val state = viewModel.recorderState.value
+        if (state != null && state != RecorderState.IDLE) {
+            android.util.Log.w(
+                "USBAudioRecorder",
+                "Cannot reconnect while recorder state is $state. Stop monitoring/recording first."
+            )
+            return false
+        }
+
+        if (usbConnection != null) {
+            closeExistingConnection("reconnect")
+            Thread.sleep(100)
+        }
+
         usbDevice = device
         
         android.util.Log.i("USBAudioRecorder", "Opening USB device connection")

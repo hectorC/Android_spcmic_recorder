@@ -78,6 +78,12 @@
 #ifndef USB_SUBCLASS_AUDIOSTREAMING
 #define USB_SUBCLASS_AUDIOSTREAMING 0x02
 #endif
+#ifndef USBDEVFS_IOCTL
+#define USBDEVFS_IOCTL _IOWR('U', 32, struct usbdevfs_ioctl)
+#endif
+#ifndef USBDEVFS_CLEAR_HALT
+#define USBDEVFS_CLEAR_HALT _IO('U', 2)
+#endif
 
 constexpr uint8_t UAC_CS_SUBTYPE_AS_GENERAL = 0x01;
 constexpr uint8_t UAC_CS_SUBTYPE_FORMAT_TYPE = 0x02;
@@ -250,6 +256,11 @@ bool USBAudioInterface::initialize(int deviceFd, int sampleRate, int channelCoun
     if (!setAudioFormat()) {
         LOGE("Failed to set audio format");
         return false;
+    }
+
+    // Ensure the isochronous pipe is idle before upper layers begin streaming.
+    if (!flushIsochronousEndpoint()) {
+        LOGE("Isochronous endpoint flush reported issues; continuing with best effort state");
     }
     
     LOGI("USB audio interface initialized successfully");
@@ -1286,6 +1297,91 @@ void USBAudioInterface::resetStreamingState() {
     m_nextSubmitIndex = 0;
     m_currentFrameNumber = 0;
     m_frameNumberInitialized = false;
+}
+
+bool USBAudioInterface::flushIsochronousEndpoint() {
+    if (m_deviceFd < 0) {
+        LOGE("Cannot flush isochronous endpoint: invalid device fd");
+        return false;
+    }
+
+    if (!m_endpointInfoReady) {
+        LOGE("Cannot flush isochronous endpoint: endpoint information not ready");
+        return false;
+    }
+
+    resetStreamingState();
+    bool success = true;
+
+    // Force the interface into the idle alternate setting before clearing any state.
+    if (m_streamInterfaceNumber >= 0) {
+        if (!setInterface(m_streamInterfaceNumber, 0)) {
+            LOGE("Failed to set interface %d to alt 0 during flush", m_streamInterfaceNumber);
+            success = false;
+        }
+    }
+
+    // Best-effort cancel of any URBs that might still be owned by the kernel for this fd.
+    if (m_urbs && m_urbsInitialized) {
+        int cancelled = 0;
+        for (int i = 0; i < NUM_URBS; ++i) {
+            if (!m_urbs[i]) {
+                continue;
+            }
+            if (ioctl(m_deviceFd, USBDEVFS_DISCARDURB, m_urbs[i]) == 0) {
+                ++cancelled;
+            } else if (errno != EINVAL && errno != ENODEV) {
+                LOGE("DISCARDURB failed for URB[%d]: %s (errno %d)", i, strerror(errno), errno);
+                success = false;
+            }
+        }
+
+        for (int i = 0; i < cancelled; ++i) {
+            struct usbdevfs_urb* reaped = nullptr;
+            if (ioctl(m_deviceFd, USBDEVFS_REAPURB, &reaped) < 0) {
+                if (errno != EINVAL && errno != ENODEV) {
+                    LOGE("REAPURB during flush failed: %s (errno %d)", strerror(errno), errno);
+                    success = false;
+                }
+                break;
+            }
+        }
+    }
+
+    // Clear any lingering data toggle on the streaming endpoint.
+    if (m_audioInEndpoint != 0 && m_streamInterfaceNumber >= 0) {
+        unsigned int endpoint = static_cast<unsigned int>(m_audioInEndpoint);
+        struct usbdevfs_ioctl clear = {};
+        clear.ifno = m_streamInterfaceNumber;
+        clear.ioctl_code = USBDEVFS_CLEAR_HALT;
+        clear.data = &endpoint;
+
+        int clearResult = ioctl(m_deviceFd, USBDEVFS_IOCTL, &clear);
+        if (clearResult == 0) {
+            LOGI("Cleared halt on endpoint 0x%02x", endpoint);
+        } else if (errno == EINVAL || errno == ENOTTY) {
+            LOGI("CLEAR_HALT not supported for endpoint 0x%02x (errno %d)", endpoint, errno);
+        } else {
+            LOGE("Failed to clear halt on endpoint 0x%02x: %s (errno %d)", endpoint, strerror(errno), errno);
+            success = false;
+        }
+    }
+
+    // Synchronize with the device's current USB frame number.
+    unsigned int currentFrame = 0;
+    if (ioctl(m_deviceFd, USBDEVFS_GET_CURRENT_FRAME, &currentFrame) == 0) {
+        m_currentFrameNumber = static_cast<int>(currentFrame);
+        m_frameNumberInitialized = true;
+        LOGI("Flushed endpoint and synchronized to USB frame %u", currentFrame);
+    } else if (errno != ENOTTY) {
+        LOGE("Failed to read current USB frame during flush: %s (errno %d)", strerror(errno), errno);
+        success = false;
+    }
+
+    // Allow the device a brief window to settle before we resume streaming.
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+    return success;
 }
 
 bool USBAudioInterface::sendControlRequest(uint8_t request, uint16_t value, 

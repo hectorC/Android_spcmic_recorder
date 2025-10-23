@@ -168,6 +168,13 @@ class RecordFragment : Fragment() {
     }
     
     private fun claimUsbDevice(device: UsbDevice) {
+        val state = viewModel.recorderState.value
+        if (state != null && state != RecorderState.IDLE) {
+            Toast.makeText(requireContext(), "Stop monitoring/recording before refreshing USB", Toast.LENGTH_SHORT).show()
+            Log.w("RecordFragment", "Ignoring USB claim while state=$state")
+            return
+        }
+
         try {
             // Initialize audio recorder if not already done
             if (!::audioRecorder.isInitialized) {
@@ -652,6 +659,13 @@ class RecordFragment : Fragment() {
     
     private fun refreshUSBDevices() {
         // Refresh and connect to USB device (called by refresh button)
+        val state = viewModel.recorderState.value
+        if (state != null && state != RecorderState.IDLE) {
+            Toast.makeText(requireContext(), "Stop monitoring/recording before refreshing USB", Toast.LENGTH_SHORT).show()
+            Log.w("RecordFragment", "Skipping USB refresh while state=$state")
+            return
+        }
+
         val deviceList = usbManager.deviceList
         val audioDevices = deviceList.values.filter { device ->
             isAudioDevice(device)
