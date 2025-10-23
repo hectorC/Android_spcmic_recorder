@@ -77,6 +77,8 @@ private:
     bool m_wasStreaming;
     int m_notStreamingCount;
     int m_noFramesCount;
+    std::vector<uint8_t> m_pendingData;
+    size_t m_pendingReadOffset;
 
     // Explicit frame scheduling for isochronous transfers
     int m_currentFrameNumber;
@@ -132,4 +134,5 @@ private:
     uint32_t m_maxContinuousSampleRate;
 
     static constexpr size_t MAX_URB_BUFFER_BYTES = 128 * 1024;  // Increased from 64KB for lower overhead
+    static constexpr size_t MAX_PENDING_BUFFER_BYTES = 512 * 1024;  // Diagnostic threshold for staged packet spillover
 };

@@ -15,6 +15,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <cstddef>
 
 #define LOG_TAG "USBAudioInterface"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -175,6 +176,8 @@ USBAudioInterface::USBAudioInterface()
     , m_wasStreaming(false)
     , m_notStreamingCount(0)
     , m_noFramesCount(0)
+    , m_pendingData()
+    , m_pendingReadOffset(0)
     , m_currentFrameNumber(0)
     , m_frameNumberInitialized(false)
     , m_streamInterfaceNumber(-1)
@@ -1277,6 +1280,8 @@ void USBAudioInterface::resetStreamingState() {
     m_reapAttemptCount = 0;
     m_notStreamingCount = 0;
     m_noFramesCount = 0;
+    m_pendingData.clear();
+    m_pendingReadOffset = 0;
     m_totalSubmitted = 0;
     m_nextSubmitIndex = 0;
     m_currentFrameNumber = 0;
@@ -1529,8 +1534,72 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
         }
     }
 
+    // Only hand off complete 84-channel frames; leaving partial frames staged avoids audible artifacts.
+    auto drainPendingData = [&](uint8_t* dest, size_t capacity) -> size_t {
+        if (frameSize == 0 || capacity < frameSize || m_pendingData.empty()) {
+            return 0;
+        }
+
+        const size_t available = m_pendingData.size() - m_pendingReadOffset;
+        if (available < frameSize) {
+            return 0;
+        }
+
+        const size_t maxFramesByCapacity = capacity / frameSize;
+        if (maxFramesByCapacity == 0) {
+            return 0;
+        }
+
+        const size_t availableFrames = available / frameSize;
+        const size_t framesToCopy = std::min(maxFramesByCapacity, availableFrames);
+        if (framesToCopy == 0) {
+            return 0;
+        }
+
+        const size_t bytesToCopy = framesToCopy * frameSize;
+        memcpy(dest, m_pendingData.data() + m_pendingReadOffset, bytesToCopy);
+        m_pendingReadOffset += bytesToCopy;
+        if (m_pendingReadOffset >= m_pendingData.size()) {
+            m_pendingData.clear();
+            m_pendingReadOffset = 0;
+        }
+        return bytesToCopy;
+    };
+
+    auto appendPendingData = [&](const uint8_t* src, size_t length) {
+        if (length == 0) {
+            return;
+        }
+
+        if (!m_pendingData.empty() && m_pendingReadOffset > 0) {
+            if (m_pendingReadOffset >= m_pendingData.size()) {
+                m_pendingData.clear();
+            } else {
+                const size_t unread = m_pendingData.size() - m_pendingReadOffset;
+                memmove(m_pendingData.data(),
+                        m_pendingData.data() + m_pendingReadOffset,
+                        unread);
+                m_pendingData.resize(unread);
+            }
+            m_pendingReadOffset = 0;
+        }
+
+        const size_t currentSize = m_pendingData.size();
+        m_pendingData.resize(currentSize + length);
+        memcpy(m_pendingData.data() + currentSize, src, length);
+
+        if (m_pendingData.size() > MAX_PENDING_BUFFER_BYTES) {
+            LOGE("Pending staging buffer exceeded %zu bytes (current=%zu). Downstream consumer is not keeping up.",
+                 static_cast<size_t>(MAX_PENDING_BUFFER_BYTES), m_pendingData.size());
+        }
+    };
+
+    size_t total_bytes_accumulated = drainPendingData(buffer, bufferSize);
+    if (total_bytes_accumulated >= bufferSize) {
+        return total_bytes_accumulated;
+    }
+
     int urbs_reaped_this_call = 0;
-    size_t total_bytes_accumulated = 0;
     const int MAX_REAPS_PER_CALL = 32; // Safety limit
     bool resetTriggered = false;
 
@@ -1598,7 +1667,7 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
             LOG_FATAL_IF(m_urbBufferSize == 0, "URB[%d] buffer size is zero", urb_index);
 
             size_t packetOffset = 0;
-            for (size_t pkt = 0; pkt < m_packetsPerUrb && total_bytes_accumulated < bufferSize; ++pkt) {
+            for (size_t pkt = 0; pkt < m_packetsPerUrb; ++pkt) {
                 unsigned int packetLength = completed_urb->iso_frame_desc[pkt].actual_length;
                 if (packetLength > 0) {
                     LOG_FATAL_IF(packetOffset >= m_urbBufferSize,
@@ -1612,17 +1681,29 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
                                                               static_cast<unsigned int>(m_urbBufferSize - packetOffset));
                     }
 
-                    const size_t remainingDest = bufferSize - total_bytes_accumulated;
-                    const size_t bytesToCopy = std::min(static_cast<size_t>(packetLength), remainingDest);
-                    LOG_FATAL_IF(bytesToCopy == 0 && packetLength > 0,
-                                 "URB[%d] has data (%u bytes) but destination exhausted (pkt=%zu)",
-                                 urb_index, packetLength, pkt);
-                    LOG_FATAL_IF(packetOffset + bytesToCopy > m_urbBufferSize,
-                                 "URB[%d] copy range exceeds source bounds (offset=%zu, copy=%zu, size=%zu)",
-                                 urb_index, packetOffset, bytesToCopy, m_urbBufferSize);
+                    size_t bytesToCopy = 0;
+                    if (total_bytes_accumulated < bufferSize) {
+                        const size_t remainingDest = bufferSize - total_bytes_accumulated;
+                        const size_t remainingFrames = frameSize > 0 ? (remainingDest / frameSize) : 0;
+                        const size_t copyCapacity = remainingFrames * frameSize;
+                        bytesToCopy = std::min(static_cast<size_t>(packetLength), copyCapacity);
+                        LOG_FATAL_IF(packetOffset + bytesToCopy > m_urbBufferSize,
+                                     "URB[%d] copy range exceeds source bounds (offset=%zu, copy=%zu, size=%zu)",
+                                     urb_index, packetOffset, bytesToCopy, m_urbBufferSize);
 
-                    memcpy(buffer + total_bytes_accumulated, urbData + packetOffset, bytesToCopy);
-                    total_bytes_accumulated += bytesToCopy;
+                        if (bytesToCopy > 0) {
+                            memcpy(buffer + total_bytes_accumulated, urbData + packetOffset, bytesToCopy);
+                            total_bytes_accumulated += bytesToCopy;
+                        }
+                    }
+
+                    const size_t spillover = static_cast<size_t>(packetLength) - bytesToCopy;
+                    if (spillover > 0) {
+                        LOG_FATAL_IF(packetOffset + bytesToCopy + spillover > m_urbBufferSize,
+                                     "URB[%d] spillover range exceeds source bounds (offset=%zu, copy=%zu, spill=%zu, size=%zu)",
+                                     urb_index, packetOffset, bytesToCopy, spillover, m_urbBufferSize);
+                        appendPendingData(urbData + packetOffset + bytesToCopy, spillover);
+                    }
                 }
                 packetOffset += m_isoPacketSize;
             }
@@ -1727,6 +1808,19 @@ size_t USBAudioInterface::readAudioData(uint8_t* buffer, size_t bufferSize) {
     if (urbs_reaped_this_call > 1 && (m_reapCount <= 50 || m_reapCount % 100 == 0)) {
         LOGI("Reaped %d URBs in single call (reap#%d), total bytes=%zu",
              urbs_reaped_this_call, m_reapCount, total_bytes_accumulated);
+    }
+
+    if (total_bytes_accumulated < bufferSize) {
+        total_bytes_accumulated += drainPendingData(buffer + total_bytes_accumulated,
+                                                   bufferSize - total_bytes_accumulated);
+    }
+
+    if (frameSize > 0) {
+        const size_t remainder = total_bytes_accumulated % frameSize;
+        if (remainder != 0) {
+            appendPendingData(buffer + (total_bytes_accumulated - remainder), remainder);
+            total_bytes_accumulated -= remainder;
+        }
     }
 
     return total_bytes_accumulated;
