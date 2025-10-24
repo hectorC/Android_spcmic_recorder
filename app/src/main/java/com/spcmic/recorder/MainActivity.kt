@@ -41,10 +41,11 @@ class MainActivity : AppCompatActivity() {
         }
         
         // Handle USB device attachment if app was launched by USB intent
-        // Defer until fragment is attached
-        binding.root.post {
+        // Defer until fragment is attached and USB subsystem has stabilized
+        // Additional delay prevents race conditions when app auto-launches from USB connection
+        binding.root.postDelayed({
             handleUsbIntent(intent)
-        }
+        }, 200) // 200ms to ensure fragment is fully attached
     }
     
     override fun onNewIntent(intent: Intent?) {

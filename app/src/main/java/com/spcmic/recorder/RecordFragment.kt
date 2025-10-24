@@ -157,8 +157,17 @@ class RecordFragment : Fragment() {
                 
                 // Check if this is our target spcmic device
                 if (device.vendorId == 22564 && device.productId == 10208) {
-                    Log.i("RecordFragment", "spcmic device detected - claiming device immediately")
-                    claimUsbDevice(device)
+                    Log.i("RecordFragment", "spcmic device detected - deferring connection to allow USB subsystem to stabilize")
+                    // Defer device claiming to allow USB subsystem to fully enumerate the device
+                    // This prevents crackle/corruption that can occur when connecting too early during auto-launch
+                    binding.root.postDelayed({
+                        if (isAdded && viewModel.recorderState.value == RecorderState.IDLE) {
+                            Log.i("RecordFragment", "USB subsystem stabilized - claiming spcmic device now")
+                            claimUsbDevice(device)
+                        } else {
+                            Log.w("RecordFragment", "Skipping deferred USB claim - fragment detached or not idle")
+                        }
+                    }, 500) // 500ms delay to let USB subsystem settle
                 } else {
                     Log.i("RecordFragment", "Generic USB audio device detected")
                     refreshUSBDevices()
@@ -240,6 +249,13 @@ class RecordFragment : Fragment() {
                     val selectedRate = currentSupportedSampleRates[position]
                     val currentSelected = viewModel.selectedSampleRate.value
                     if (currentSelected == selectedRate) {
+                        return
+                    }
+
+                    val recorderState = viewModel.recorderState.value
+                    if (recorderState != null && recorderState != RecorderState.IDLE) {
+                        Toast.makeText(requireContext(), "Stop monitoring or recording before changing sample rate", Toast.LENGTH_SHORT).show()
+                        revertSampleRateSelection()
                         return
                     }
 
@@ -384,6 +400,17 @@ class RecordFragment : Fragment() {
                 )
             }
         }
+        updateSampleRateSpinnerEnabled(state)
+    }
+
+    private fun updateSampleRateSpinnerEnabled(state: RecorderState? = viewModel.recorderState.value) {
+        if (_binding == null) {
+            return
+        }
+        val allowChanges = state == null || state == RecorderState.IDLE
+        val isConnected = viewModel.isUSBDeviceConnected.value == true
+        val hasRates = currentSupportedSampleRates.isNotEmpty()
+        binding.spinnerSampleRate.isEnabled = allowChanges && isConnected && hasRates
     }
 
     private fun initializeStorageLocation() {
@@ -438,7 +465,7 @@ class RecordFragment : Fragment() {
                 getString(R.string.usb_device_not_found)
             }
             binding.btnRecord.isEnabled = isConnected && !viewModel.isRecording.value!!
-            binding.spinnerSampleRate.isEnabled = isConnected && currentSupportedSampleRates.isNotEmpty()
+            updateSampleRateSpinnerEnabled()
             
             // Update connection status badge
             val badgeRes = if (isConnected) R.drawable.status_badge_connected else R.drawable.status_badge_disconnected
@@ -487,9 +514,9 @@ class RecordFragment : Fragment() {
                 }
                 sampleRateAdapter.notifyDataSetChanged()
             }
-            binding.spinnerSampleRate.isEnabled = viewModel.isUSBDeviceConnected.value == true && rates.isNotEmpty()
             updateSampleRateSpinnerSelection()
             updateSampleRateSupportText()
+            updateSampleRateSpinnerEnabled()
         }
 
         viewModel.selectedSampleRate.observe(viewLifecycleOwner) { rate ->
