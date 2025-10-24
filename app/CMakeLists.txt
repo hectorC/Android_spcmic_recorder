@@ -38,7 +38,6 @@ set(RECORDING_SOURCES
     src/main/cpp/usb_audio_interface.cpp
     src/main/cpp/multichannel_recorder.cpp
     src/main/cpp/wav_writer.cpp
-    src/main/cpp/uac_protocol.cpp
 )
 
 # Playback library source files (new)

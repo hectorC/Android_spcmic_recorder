@@ -90,8 +90,4 @@ private:
     float normalizeLevel(int32_t sample);
 
     size_t m_bufferSize;
-
-    bool startRecordingInternal(
-        const std::string& destinationLabel,
-        const std::function<bool(WAVWriter*)>& openWriter);
 };

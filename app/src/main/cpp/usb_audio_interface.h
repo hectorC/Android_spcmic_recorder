@@ -34,8 +34,6 @@ public:
     int getBytesPerSample() const { return m_bytesPerSample; }
     
     // USB Audio Class specific
-    bool configureUACDevice();
-    bool setAudioFormat();
     bool enableAudioStreaming();
     bool setInterface(int interfaceNum, int altSetting);
     
@@ -85,10 +83,7 @@ private:
     bool m_frameNumberInitialized;
 
     // USB control functions
-    bool sendControlRequest(uint8_t request, uint16_t value, uint16_t index, 
-                           uint8_t* data, uint16_t length);
     bool configureSampleRate(int sampleRate);
-    bool configureChannels(int channels);
     bool findAudioEndpoint();
     bool fetchConfigurationDescriptor(std::vector<uint8_t>& descriptor);
     bool parseStreamingEndpoint(const std::vector<uint8_t>& descriptor);

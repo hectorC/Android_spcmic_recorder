@@ -110,3 +110,4 @@ RELEASE_BUILD_GUIDE.md
 .github/copilot-instructions.md
 last_log*.txt
 logcat_command.txt
+linux_usb_audio/

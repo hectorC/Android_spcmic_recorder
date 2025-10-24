@@ -1,5 +1,4 @@
 #include "usb_audio_interface.h"
-#include "uac_protocol.h"
 #include <android/log.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -85,6 +84,14 @@
 #define USBDEVFS_CLEAR_HALT _IO('U', 2)
 #endif
 
+// USB Audio Class request codes
+constexpr uint8_t UAC_SET_CUR = 0x01;
+constexpr uint8_t UAC_GET_CUR = 0x81;
+
+// USB Audio Class control selectors
+constexpr uint8_t UAC_SAMPLING_FREQ_CONTROL = 0x01;
+
+// USB Audio Class descriptor subtypes
 constexpr uint8_t UAC_CS_SUBTYPE_AS_GENERAL = 0x01;
 constexpr uint8_t UAC_CS_SUBTYPE_FORMAT_TYPE = 0x02;
 constexpr uint8_t UAC_CS_SUBTYPE_CLOCK_SOURCE = 0x0A;
@@ -246,18 +253,6 @@ bool USBAudioInterface::initialize(int deviceFd, int sampleRate, int channelCoun
              derivedRate, m_sampleRate);
     }
 
-    // Configure the USB Audio Class device
-    if (!configureUACDevice()) {
-        LOGE("Failed to configure UAC device");
-        return false;
-    }
-    
-    // Set audio format (48kHz, 24-bit, 84 channels)
-    if (!setAudioFormat()) {
-        LOGE("Failed to set audio format");
-        return false;
-    }
-
     // Ensure the isochronous pipe is idle before upper layers begin streaming.
     if (!flushIsochronousEndpoint()) {
         LOGE("Isochronous endpoint flush reported issues; continuing with best effort state");
@@ -286,39 +281,6 @@ bool USBAudioInterface::findAudioEndpoint() {
     LOGI("Endpoint characteristics: isoPacketSize=%zu bytes, servicePackets=%zu, bytesPerInterval=%zu", 
          m_isoPacketSize, m_packetsPerServiceInterval, m_bytesPerInterval);
 
-    return true;
-}
-
-bool USBAudioInterface::configureUACDevice() {
-    LOGI("Configuring USB Audio Class device");
-    
-    if (!m_endpointInfoReady) {
-        LOGE("Cannot configure UAC device before endpoint discovery");
-        return false;
-    }
-
-    LOGI("Using Android-provided device file descriptor; streaming endpoint 0x%02x on interface %d alt %d", 
-         m_audioInEndpoint, m_streamInterfaceNumber, m_streamAltSetting);
-    LOGI("Isochronous geometry: isoPacketSize=%zu bytes, servicePackets=%zu, bytesPerInterval=%zu", 
-         m_isoPacketSize, m_packetsPerServiceInterval, m_bytesPerInterval);
-    
-    LOGI("USB Audio Class device configured successfully");
-    return true;
-}
-
-bool USBAudioInterface::setAudioFormat() {
-    LOGI("Setting audio format: %dHz, %d channels, %d bytes per sample", 
-         m_sampleRate, m_channelCount, m_bytesPerSample);
-    
-    // USB Audio Class format configuration
-    // This would typically involve setting up the audio streaming interface
-    // with the specific format descriptors
-    
-    // For a real implementation, you would:
-    // 1. Parse USB descriptors to find audio endpoints
-    // 2. Set the appropriate alternate setting for the desired format
-    // 3. Configure sample rate, bit depth, and channel count
-    
     return true;
 }
 
@@ -484,16 +446,6 @@ bool USBAudioInterface::configureSampleRate(int sampleRate) {
     }
 
     return clockSuccess || endpointSuccess;
-}
-
-bool USBAudioInterface::configureChannels(int channels) {
-    LOGI("Configuring %d channels", channels);
-    
-    // Channel configuration is typically handled by selecting the appropriate
-    // alternate setting of the audio streaming interface that supports
-    // the desired number of channels
-    
-    return true;
 }
 
 bool USBAudioInterface::readSampleRateFromClock(uint32_t& outRate) {
@@ -1382,26 +1334,6 @@ bool USBAudioInterface::flushIsochronousEndpoint() {
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
     return success;
-}
-
-bool USBAudioInterface::sendControlRequest(uint8_t request, uint16_t value, 
-                                         uint16_t index, uint8_t* data, uint16_t length) {
-    struct usbdevfs_ctrltransfer ctrl;
-    ctrl.bRequestType = 0x21; // Class, Interface, Host to Device
-    ctrl.bRequest = request;
-    ctrl.wValue = value;
-    ctrl.wIndex = index;
-    ctrl.wLength = length;
-    ctrl.timeout = 1000; // 1 second timeout
-    ctrl.data = data;
-    
-    int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
-    if (result < 0) {
-        LOGE("Control request failed: %d", result);
-        return false;
-    }
-    
-    return true;
 }
 
 bool USBAudioInterface::startStreaming() {
