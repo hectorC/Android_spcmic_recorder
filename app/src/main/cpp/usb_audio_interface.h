@@ -84,6 +84,8 @@ private:
 
     // USB control functions
     bool configureSampleRate(int sampleRate);
+    bool checkClockValidity(int clockId, int maxRetries = 10);
+    bool setInterfaceWithRetry(int interfaceNum, int altSetting, int maxRetries = 5);
     bool findAudioEndpoint();
     bool fetchConfigurationDescriptor(std::vector<uint8_t>& descriptor);
     bool parseStreamingEndpoint(const std::vector<uint8_t>& descriptor);

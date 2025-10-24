@@ -91,6 +91,9 @@ constexpr uint8_t UAC_GET_CUR = 0x81;
 // USB Audio Class control selectors
 constexpr uint8_t UAC_SAMPLING_FREQ_CONTROL = 0x01;
 
+// UAC2 Clock Source control selectors
+constexpr uint8_t UAC2_CS_CONTROL_CLOCK_VALID = 0x02;
+
 // USB Audio Class descriptor subtypes
 constexpr uint8_t UAC_CS_SUBTYPE_AS_GENERAL = 0x01;
 constexpr uint8_t UAC_CS_SUBTYPE_FORMAT_TYPE = 0x02;
@@ -299,6 +302,110 @@ bool USBAudioInterface::setInterface(int interfaceNum, int altSetting) {
     return true;
 }
 
+bool USBAudioInterface::setInterfaceWithRetry(int interfaceNum, int altSetting, int maxRetries) {
+    LOGI("Setting interface %d to alt %d with retry (maxRetries=%d)", 
+         interfaceNum, altSetting, maxRetries);
+
+    for (int retry = 0; retry < maxRetries; retry++) {
+        struct usbdevfs_setinterface setintf;
+        setintf.interface = interfaceNum;
+        setintf.altsetting = altSetting;
+        
+        int result = ioctl(m_deviceFd, USBDEVFS_SETINTERFACE, &setintf);
+        if (result == 0) {
+            LOGI("Successfully set interface %d alt %d (attempt %d/%d)", 
+                 interfaceNum, altSetting, retry + 1, maxRetries);
+            return true;
+        }
+
+        int err = errno;
+        
+        // EPROTO errors can occur during interface transitions - retry with backoff
+        if (err == EPROTO && retry < maxRetries - 1) {
+            // Exponential backoff: 5ms, 10ms, 20ms, 40ms, 80ms
+            int delayUs = 5000 * (1 << retry);
+            LOGI("Interface setting failed with EPROTO (attempt %d/%d), retrying after %d ms", 
+                 retry + 1, maxRetries, delayUs / 1000);
+            usleep(delayUs);
+            continue;
+        }
+
+        // Other errors or final retry - fail
+        LOGE("Failed to set interface %d alt %d: result=%d errno=%d (%s) (attempt %d/%d)",
+             interfaceNum, altSetting, result, err, strerror(err), retry + 1, maxRetries);
+        
+        if (retry < maxRetries - 1) {
+            int delayUs = 5000 * (1 << retry);
+            LOGI("Retrying after %d ms", delayUs / 1000);
+            usleep(delayUs);
+        }
+    }
+
+    LOGE("Failed to set interface %d alt %d after %d retries", 
+         interfaceNum, altSetting, maxRetries);
+    return false;
+}
+
+bool USBAudioInterface::checkClockValidity(int clockId, int maxRetries) {
+    if (m_deviceFd < 0 || clockId < 0) {
+        return false;
+    }
+
+    LOGI("Checking clock source validity (id=%d, maxRetries=%d)", clockId, maxRetries);
+
+    for (int retry = 0; retry < maxRetries; retry++) {
+        uint8_t valid = 0;
+        struct usbdevfs_ctrltransfer ctrl = {};
+        ctrl.bRequestType = 0xA1; // Class, Interface, Device to Host
+        ctrl.bRequest = UAC_GET_CUR;
+        ctrl.wValue = (UAC2_CS_CONTROL_CLOCK_VALID << 8) | 0x00;
+        
+        // Try control interface first if available
+        if (m_controlInterfaceNumber >= 0) {
+            uint16_t wIndex = (static_cast<uint16_t>(clockId) << 8) | 
+                             static_cast<uint16_t>(m_controlInterfaceNumber & 0xFF);
+            ctrl.wIndex = wIndex;
+            ctrl.wLength = 1;
+            ctrl.timeout = 1000;
+            ctrl.data = &valid;
+
+            int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
+            if (result >= 0 && valid) {
+                LOGI("Clock source %d is VALID (retry %d/%d)", clockId, retry + 1, maxRetries);
+                return true;
+            }
+        }
+
+        // Try streaming interface if control interface failed
+        if (m_streamInterfaceNumber >= 0) {
+            uint16_t wIndex = (static_cast<uint16_t>(clockId) << 8) | 
+                             static_cast<uint16_t>(m_streamInterfaceNumber & 0xFF);
+            ctrl.wIndex = wIndex;
+            ctrl.wLength = 1;
+            ctrl.timeout = 1000;
+            ctrl.data = &valid;
+
+            int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
+            if (result >= 0 && valid) {
+                LOGI("Clock source %d is VALID (retry %d/%d)", clockId, retry + 1, maxRetries);
+                return true;
+            }
+        }
+
+        if (retry < maxRetries - 1) {
+            LOGI("Clock source %d not valid yet, retry %d/%d (waiting 10ms)", 
+                 clockId, retry + 1, maxRetries);
+            usleep(10000); // 10ms delay before retry
+        }
+    }
+
+    LOGI("Clock source %d validity check inconclusive after %d retries (assuming valid)", 
+         clockId, maxRetries);
+    // Return true if we can't determine - assume device is ready
+    // This prevents breaking devices that don't support clock validity queries
+    return true;
+}
+
 bool USBAudioInterface::configureSampleRate(int sampleRate) {
     LOGI("Configuring sample rate to %d Hz", sampleRate);
 
@@ -328,6 +435,12 @@ bool USBAudioInterface::configureSampleRate(int sampleRate) {
     };
 
     if (m_deviceFd >= 0 && m_clockSourceId >= 0) {
+        // Check clock validity before attempting to set sample rate
+        // This ensures the clock source is stable and ready
+        if (!checkClockValidity(m_clockSourceId, 10)) {
+            LOGI("Clock source %d validity check failed, proceeding anyway", m_clockSourceId);
+        }
+
         struct ClockSetAttempt {
             uint16_t wIndex;
             uint16_t wLength;
@@ -1225,6 +1338,16 @@ bool USBAudioInterface::ensureUrbResources() {
     LOGI("Initialized %d isochronous URBs: packetsPerUrb=%zu, bufferSize=%zu bytes, isoPacket=%zu", 
          NUM_URBS, m_packetsPerUrb, m_urbBufferSize, m_isoPacketSize);
 
+    // Clear endpoint halt condition before starting streaming
+    // This is critical - Linux USB audio driver does this to clear stale errors
+    LOGI("Clearing endpoint halt on 0x%02x before URB submission", m_audioInEndpoint);
+    int clearResult = ioctl(m_deviceFd, USBDEVFS_CLEAR_HALT, &m_audioInEndpoint);
+    if (clearResult < 0) {
+        LOGI("Clear halt failed (errno %d: %s) - may not be needed", errno, strerror(errno));
+    } else {
+        LOGI("Endpoint halt cleared successfully");
+    }
+
     return true;
 }
 
@@ -1420,7 +1543,10 @@ bool USBAudioInterface::enableAudioStreaming() {
     // STEP 1: Reset interface to alt 0 (disable streaming)
     // This is CRITICAL - Linux USB audio driver always does this first
     LOGI("Step 1: Setting Interface %d to alt 0 (disable streaming)", streamingInterface);
-    setInterface(streamingInterface, 0);
+    if (!setInterfaceWithRetry(streamingInterface, 0, 5)) {
+        LOGE("Failed to reset streaming interface to alt 0");
+        return false;
+    }
     usleep(50000); // 50ms delay
     
     // STEP 2: Configure sample rate BEFORE enabling the interface
@@ -1456,15 +1582,8 @@ bool USBAudioInterface::enableAudioStreaming() {
     // STEP 3: NOW activate the interface by setting alt 1
     // This starts the isochronous streaming
     LOGI("Step 3: Setting Interface %d to alt %d (enable streaming)", streamingInterface, streamingAltSetting);
-    struct usbdevfs_setinterface setintf = {0};
-    setintf.interface = streamingInterface;
-    setintf.altsetting = streamingAltSetting;
-    
-    int result = ioctl(m_deviceFd, USBDEVFS_SETINTERFACE, &setintf);
-    if (result == 0) {
-        LOGI("Successfully enabled Interface %d alt %d for streaming", streamingInterface, streamingAltSetting);
-    } else {
-        LOGE("Failed to set Interface %d alt %d: %s", streamingInterface, streamingAltSetting, strerror(errno));
+    if (!setInterfaceWithRetry(streamingInterface, streamingAltSetting, 5)) {
+        LOGE("Failed to enable streaming interface alt %d", streamingAltSetting);
         return false;
     }
     
