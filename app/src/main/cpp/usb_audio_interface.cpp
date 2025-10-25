@@ -92,7 +92,11 @@ constexpr uint8_t UAC_GET_CUR = 0x81;
 constexpr uint8_t UAC_SAMPLING_FREQ_CONTROL = 0x01;
 
 // UAC2 Clock Source control selectors
-constexpr uint8_t UAC2_CS_CONTROL_CLOCK_VALID = 0x02;
+constexpr uint8_t UAC2_CS_CONTROL_CLOCK_VALID = 0x01;
+constexpr uint8_t UAC2_CS_CONTROL_SAM_FREQ = 0x00;
+
+// UAC2 Clock Selector control selectors
+constexpr uint8_t UAC2_CX_CLOCK_SELECTOR = 0x00;
 
 // USB Audio Class descriptor subtypes
 constexpr uint8_t UAC_CS_SUBTYPE_AS_GENERAL = 0x01;
@@ -165,6 +169,18 @@ inline uint32_t read_le32(const void* ptr) {
 
 } // namespace
 
+bool USBAudioInterface::isControlReadable(uint32_t bmControls, uint8_t controlBitIndex) {
+    const uint32_t shift = static_cast<uint32_t>(controlBitIndex) * 2u;
+    const uint32_t field = (bmControls >> shift) & 0x3u;
+    return field == 0x1u || field == 0x3u;
+}
+
+bool USBAudioInterface::isControlWritable(uint32_t bmControls, uint8_t controlBitIndex) {
+    const uint32_t shift = static_cast<uint32_t>(controlBitIndex) * 2u;
+    const uint32_t field = (bmControls >> shift) & 0x3u;
+    return field == 0x2u || field == 0x3u;
+}
+
 USBAudioInterface::USBAudioInterface() 
     : m_deviceFd(-1)
     , m_sampleRate(48000)
@@ -225,6 +241,30 @@ USBAudioInterface::USBAudioInterface()
 
 USBAudioInterface::~USBAudioInterface() {
     release();
+}
+
+const USBAudioInterface::ClockSourceDetails* USBAudioInterface::findClockSourceDetails(uint8_t id) const {
+    auto it = m_clockSourceMap.find(id);
+    if (it != m_clockSourceMap.end()) {
+        return &it->second;
+    }
+    return nullptr;
+}
+
+const USBAudioInterface::ClockSelectorDetails* USBAudioInterface::findClockSelectorDetails(uint8_t id) const {
+    auto it = m_clockSelectorMap.find(id);
+    if (it != m_clockSelectorMap.end()) {
+        return &it->second;
+    }
+    return nullptr;
+}
+
+const USBAudioInterface::ClockMultiplierDetails* USBAudioInterface::findClockMultiplierDetails(uint8_t id) const {
+    auto it = m_clockMultiplierMap.find(id);
+    if (it != m_clockMultiplierMap.end()) {
+        return &it->second;
+    }
+    return nullptr;
 }
 
 bool USBAudioInterface::initialize(int deviceFd, int sampleRate, int channelCount) {
@@ -346,66 +386,6 @@ bool USBAudioInterface::setInterfaceWithRetry(int interfaceNum, int altSetting, 
     return false;
 }
 
-bool USBAudioInterface::checkClockValidity(int clockId, int maxRetries) {
-    if (m_deviceFd < 0 || clockId < 0) {
-        return false;
-    }
-
-    LOGI("Checking clock source validity (id=%d, maxRetries=%d)", clockId, maxRetries);
-
-    for (int retry = 0; retry < maxRetries; retry++) {
-        uint8_t valid = 0;
-        struct usbdevfs_ctrltransfer ctrl = {};
-        ctrl.bRequestType = 0xA1; // Class, Interface, Device to Host
-        ctrl.bRequest = UAC_GET_CUR;
-        ctrl.wValue = (UAC2_CS_CONTROL_CLOCK_VALID << 8) | 0x00;
-        
-        // Try control interface first if available
-        if (m_controlInterfaceNumber >= 0) {
-            uint16_t wIndex = (static_cast<uint16_t>(clockId) << 8) | 
-                             static_cast<uint16_t>(m_controlInterfaceNumber & 0xFF);
-            ctrl.wIndex = wIndex;
-            ctrl.wLength = 1;
-            ctrl.timeout = 1000;
-            ctrl.data = &valid;
-
-            int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
-            if (result >= 0 && valid) {
-                LOGI("Clock source %d is VALID (retry %d/%d)", clockId, retry + 1, maxRetries);
-                return true;
-            }
-        }
-
-        // Try streaming interface if control interface failed
-        if (m_streamInterfaceNumber >= 0) {
-            uint16_t wIndex = (static_cast<uint16_t>(clockId) << 8) | 
-                             static_cast<uint16_t>(m_streamInterfaceNumber & 0xFF);
-            ctrl.wIndex = wIndex;
-            ctrl.wLength = 1;
-            ctrl.timeout = 1000;
-            ctrl.data = &valid;
-
-            int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
-            if (result >= 0 && valid) {
-                LOGI("Clock source %d is VALID (retry %d/%d)", clockId, retry + 1, maxRetries);
-                return true;
-            }
-        }
-
-        if (retry < maxRetries - 1) {
-            LOGI("Clock source %d not valid yet, retry %d/%d (waiting 10ms)", 
-                 clockId, retry + 1, maxRetries);
-            usleep(10000); // 10ms delay before retry
-        }
-    }
-
-    LOGI("Clock source %d validity check inconclusive after %d retries (assuming valid)", 
-         clockId, maxRetries);
-    // Return true if we can't determine - assume device is ready
-    // This prevents breaking devices that don't support clock validity queries
-    return true;
-}
-
 bool USBAudioInterface::configureSampleRate(int sampleRate) {
     LOGI("Configuring sample rate to %d Hz", sampleRate);
 
@@ -414,6 +394,32 @@ bool USBAudioInterface::configureSampleRate(int sampleRate) {
     sampleRateData[1] = (sampleRate >> 8) & 0xFF;
     sampleRateData[2] = (sampleRate >> 16) & 0xFF;
     sampleRateData[3] = (sampleRate >> 24) & 0xFF;
+
+    resolveAndApplyClockSelection(true);
+
+    const ClockSourceDetails* clockDetails = findClockSourceDetails(static_cast<uint8_t>(m_clockSourceId));
+    bool clockValidReadable = clockDetails && isControlReadable(clockDetails->bmControls, UAC2_CS_CONTROL_CLOCK_VALID);
+    bool clockFreqReadable = clockDetails && isControlReadable(clockDetails->bmControls, UAC2_CS_CONTROL_SAM_FREQ);
+    bool clockFreqWritable = clockDetails && isControlWritable(clockDetails->bmControls, UAC2_CS_CONTROL_SAM_FREQ);
+
+    if (clockDetails && clockValidReadable) {
+        if (!evaluateClockValidity(static_cast<uint8_t>(m_clockSourceId), clockDetails, 20)) {
+            LOGI("Clock source %d validity not yet confirmed; attempting alternate inputs", m_clockSourceId);
+            if (resolveAndApplyClockSelection(false)) {
+                clockDetails = findClockSourceDetails(static_cast<uint8_t>(m_clockSourceId));
+                clockFreqReadable = clockDetails && isControlReadable(clockDetails->bmControls, UAC2_CS_CONTROL_SAM_FREQ);
+                clockFreqWritable = clockDetails && isControlWritable(clockDetails->bmControls, UAC2_CS_CONTROL_SAM_FREQ);
+                clockValidReadable = clockDetails && isControlReadable(clockDetails->bmControls, UAC2_CS_CONTROL_CLOCK_VALID);
+            }
+        }
+    } else if (clockDetails) {
+        LOGI("Clock source %d does not expose CLOCK_VALID control; proceeding without validation", m_clockSourceId);
+    }
+
+    if (clockDetails && !clockFreqReadable) {
+        LOGI("Clock source %d does not expose a readable sample-rate control; verification will rely on endpoint reports",
+             m_clockSourceId);
+    }
 
     bool attemptedClock = false;
     bool clockSuccess = false;
@@ -434,13 +440,7 @@ bool USBAudioInterface::configureSampleRate(int sampleRate) {
         LOGI("Sample rate %d Hz accepted via %s", sampleRate, source);
     };
 
-    if (m_deviceFd >= 0 && m_clockSourceId >= 0) {
-        // Check clock validity before attempting to set sample rate
-        // This ensures the clock source is stable and ready
-        if (!checkClockValidity(m_clockSourceId, 10)) {
-            LOGI("Clock source %d validity check failed, proceeding anyway", m_clockSourceId);
-        }
-
+    if (m_deviceFd >= 0 && m_clockSourceId >= 0 && clockFreqWritable) {
         struct ClockSetAttempt {
             uint16_t wIndex;
             uint16_t wLength;
@@ -448,7 +448,7 @@ bool USBAudioInterface::configureSampleRate(int sampleRate) {
         };
 
         std::vector<ClockSetAttempt> attempts;
-        attempts.reserve(8);
+        attempts.reserve(6);
 
         auto makeIndex = [&](int interfaceNumber) -> uint16_t {
             uint16_t high = static_cast<uint16_t>(m_clockSourceId) << 8;
@@ -480,11 +480,9 @@ bool USBAudioInterface::configureSampleRate(int sampleRate) {
         addAttempt(-1, 4, "clock source 32-bit (entity only)");
         addAttempt(-1, 3, "clock source 24-bit (entity only)");
 
+        attemptedClock = !attempts.empty();
+
         for (const auto& attempt : attempts) {
-            if (!m_clockFrequencyProgrammable && attempt.wLength == 4) {
-                continue; // Skip 32-bit attempts if descriptor says not programmable
-            }
-            attemptedClock = true;
             LOGI("Attempting %s: wIndex=0x%04x wLength=%u", attempt.description, attempt.wIndex, attempt.wLength);
 
             struct usbdevfs_ctrltransfer ctrl = {};
@@ -509,13 +507,14 @@ bool USBAudioInterface::configureSampleRate(int sampleRate) {
                  attempt.description, result, err, strerror(err));
 
             if (err == EBUSY) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
         }
-    } else if (m_clockSourceId >= 0) {
-        LOGI("Clock source present (id=%d) but descriptor reports programmable=%d or interface unknown",
-             m_clockSourceId, m_clockFrequencyProgrammable ? 1 : 0);
+    } else if (m_clockSourceId >= 0 && clockDetails) {
+        LOGI("Clock source %d does not allow host sample-rate programming (bmControls=0x%08x)",
+             m_clockSourceId, clockDetails->bmControls);
     }
+    m_clockFrequencyProgrammable = clockFreqWritable;
 
     bool endpointSuccess = false;
 
@@ -563,6 +562,11 @@ bool USBAudioInterface::configureSampleRate(int sampleRate) {
 
 bool USBAudioInterface::readSampleRateFromClock(uint32_t& outRate) {
     if (m_deviceFd < 0 || m_clockSourceId < 0) {
+        return false;
+    }
+
+    const ClockSourceDetails* details = findClockSourceDetails(static_cast<uint8_t>(m_clockSourceId));
+    if (!details || !isControlReadable(details->bmControls, UAC2_CS_CONTROL_SAM_FREQ)) {
         return false;
     }
 
@@ -739,6 +743,9 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
     m_clockMultiplierId = -1;
     m_clockMultiplierControls = 0;
     m_clockSources.clear();
+    m_clockSourceMap.clear();
+    m_clockSelectorMap.clear();
+    m_clockMultiplierMap.clear();
     m_supportedSampleRates.clear();
     m_supportsContinuousSampleRate = false;
     m_minContinuousSampleRate = 0;
@@ -906,13 +913,22 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
                         if (subType == UAC_CS_SUBTYPE_CLOCK_SOURCE && header->bLength >= 8) {
                             uint8_t clockId = body[3];
                             uint8_t bmAttributes = body[4];
-                            uint8_t bmControls = body[5];
-                            bool frequencyProgrammable = (bmControls & 0x03) != 0;
+                            uint32_t bmControls = 0;
+                            for (size_t idx = 0; idx < 4 && (5 + idx) < header->bLength; ++idx) {
+                                bmControls |= static_cast<uint32_t>(body[5 + idx]) << (idx * 8);
+                            }
+                            bool frequencyProgrammable = isControlWritable(bmControls, UAC2_CS_CONTROL_SAM_FREQ);
                             if (clockId != 0) {
-                                m_clockSourceId = clockId;
-                                m_clockFrequencyProgrammable = frequencyProgrammable;
-                                m_clockSources.push_back({clockId, bmAttributes, bmControls, frequencyProgrammable});
-                                LOGI("Found Clock Source descriptor: id=%u bmAttributes=0x%02x bmControls=0x%02x programmable=%d",
+                                ClockSourceDetails details;
+                                details.id = clockId;
+                                details.attributes = bmAttributes;
+                                details.bmControls = bmControls;
+                                m_clockSourceMap[clockId] = details;
+                                m_clockSources.push_back(details);
+                                if (m_clockSourceId < 0) {
+                                    m_clockSourceId = clockId;
+                                }
+                                LOGI("Found Clock Source descriptor: id=%u bmAttributes=0x%02x bmControls=0x%08x programmable=%d",
                                      clockId, bmAttributes, bmControls, frequencyProgrammable ? 1 : 0);
                             }
                         } else if (subType == UAC_CS_SUBTYPE_CLOCK_SELECTOR && header->bLength >= 7) {
@@ -926,7 +942,19 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
                                     inputs.push_back(body[5 + idx]);
                                 }
                                 size_t controlOffset = 5 + numInputs;
-                                uint8_t selectorControls = (header->bLength > controlOffset) ? body[controlOffset] : 0;
+                                uint32_t selectorControls = 0;
+                                if (header->bLength > controlOffset) {
+                                    selectorControls = body[controlOffset];
+                                }
+                                if (header->bLength > controlOffset + 1) {
+                                    selectorControls |= static_cast<uint32_t>(body[controlOffset + 1]) << 8;
+                                }
+                                if (header->bLength > controlOffset + 2) {
+                                    selectorControls |= static_cast<uint32_t>(body[controlOffset + 2]) << 16;
+                                }
+                                if (header->bLength > controlOffset + 3) {
+                                    selectorControls |= static_cast<uint32_t>(body[controlOffset + 3]) << 24;
+                                }
                                 uint8_t selectorString = (header->bLength > controlOffset + 1) ? body[controlOffset + 1] : 0;
                                 std::ostringstream oss;
                                 for (size_t idx = 0; idx < inputs.size(); ++idx) {
@@ -936,12 +964,17 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
                                     oss << static_cast<int>(inputs[idx]);
                                 }
                                 std::string inputsStr = oss.str();
-                                LOGI("Found Clock Selector descriptor: id=%u numInputs=%u inputs=[%s] bmControls=0x%02x iSelector=%u",
+                                LOGI("Found Clock Selector descriptor: id=%u numInputs=%u inputs=[%s] bmControls=0x%08x iSelector=%u",
                                      selectorId, numInputs, inputsStr.c_str(), selectorControls, selectorString);
+                                ClockSelectorDetails selectorDetails;
+                                selectorDetails.id = selectorId;
+                                selectorDetails.inputs = inputs;
+                                selectorDetails.bmControls = selectorControls;
+                                m_clockSelectorMap[selectorId] = selectorDetails;
                                 if (m_clockSelectorId < 0) {
                                     m_clockSelectorId = selectorId;
                                     m_clockSelectorInputs = inputs;
-                                    m_clockSelectorControls = selectorControls;
+                                    m_clockSelectorControls = static_cast<uint8_t>(selectorControls & 0xFF);
                                 }
                             }
                         } else if (subType == UAC_CS_SUBTYPE_CLOCK_MULTIPLIER && header->bLength >= 7) {
@@ -955,6 +988,10 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
                                 m_clockMultiplierId = multiplierId;
                                 m_clockMultiplierControls = multiplierControls;
                             }
+                            ClockMultiplierDetails multiplierDetails;
+                            multiplierDetails.id = multiplierId;
+                            multiplierDetails.sourceId = sourceId;
+                            m_clockMultiplierMap[multiplierId] = multiplierDetails;
                         }
                     } else if (currentInterfaceSubClass == USB_SUBCLASS_AUDIOSTREAMING && inCandidateInterface) {
                         if (subType == UAC_CS_SUBTYPE_AS_GENERAL) {
@@ -1151,33 +1188,24 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
         }
     }
 
-    int resolvedClockSourceId = m_clockSourceId;
-    if (m_streamClockEntityId >= 0) {
-        if (m_streamClockEntityId == m_clockSelectorId) {
-            if (!m_clockSelectorInputs.empty()) {
-                resolvedClockSourceId = m_clockSelectorInputs.front();
-                LOGI("Streaming clock entity is selector %d; defaulting to first input clock source id=%d",
-                     m_clockSelectorId, resolvedClockSourceId);
-            } else {
-                LOGI("Streaming clock entity references selector %d but no inputs were parsed", m_clockSelectorId);
-            }
+    if (!resolveAndApplyClockSelection(true)) {
+        if (resolveAndApplyClockSelection(false)) {
+            LOGI("Clock topology resolved without validation; proceeding with best-effort selection (id=%d)", m_clockSourceId);
+        } else if (m_clockSourceId >= 0) {
+            LOGI("Using descriptor-provided clock source id=%d (validation unavailable)", m_clockSourceId);
         } else {
-            resolvedClockSourceId = m_streamClockEntityId;
+            LOGI("No clock source could be resolved from descriptors");
         }
-    }
-
-    if (resolvedClockSourceId >= 0 && resolvedClockSourceId != m_clockSourceId) {
-        m_clockSourceId = resolvedClockSourceId;
+    } else {
+        LOGI("Clock topology resolved successfully; active clock source id=%d", m_clockSourceId);
     }
 
     if (m_clockSourceId >= 0) {
-        auto it = std::find_if(m_clockSources.begin(), m_clockSources.end(), [&](const ClockSourceDetails& entry) {
-            return entry.id == static_cast<uint8_t>(m_clockSourceId);
-        });
-        if (it != m_clockSources.end()) {
-            m_clockFrequencyProgrammable = it->programmable;
-            LOGI("Clock source detected: id=%d programmable=%d (bmAttributes=0x%02x bmControls=0x%02x)",
-                 m_clockSourceId, m_clockFrequencyProgrammable ? 1 : 0, it->attributes, it->controls);
+        const ClockSourceDetails* sourceDetails = findClockSourceDetails(static_cast<uint8_t>(m_clockSourceId));
+        if (sourceDetails) {
+            m_clockFrequencyProgrammable = isControlWritable(sourceDetails->bmControls, UAC2_CS_CONTROL_SAM_FREQ);
+            LOGI("Clock source detected: id=%d programmable=%d (bmAttributes=0x%02x bmControls=0x%08x)",
+                 m_clockSourceId, m_clockFrequencyProgrammable ? 1 : 0, sourceDetails->attributes, sourceDetails->bmControls);
         } else {
             LOGI("Clock source detected: id=%d (details not found in parsed list)", m_clockSourceId);
         }
@@ -1198,6 +1226,243 @@ bool USBAudioInterface::parseStreamingEndpoint(const std::vector<uint8_t>& descr
     updateEffectiveSampleRate();
 
     return true;
+}
+
+bool USBAudioInterface::getClockSelectorValue(uint8_t selectorId, uint8_t& outPin) const {
+    if (m_deviceFd < 0 || m_controlInterfaceNumber < 0) {
+        return false;
+    }
+
+    uint8_t value = 0;
+    struct usbdevfs_ctrltransfer ctrl = {};
+    ctrl.bRequestType = 0xA1; // Class, Interface, Device to Host
+    ctrl.bRequest = UAC_GET_CUR;
+    ctrl.wValue = static_cast<uint16_t>(UAC2_CX_CLOCK_SELECTOR) << 8;
+    ctrl.wIndex = (static_cast<uint16_t>(selectorId) << 8) |
+                  static_cast<uint16_t>(m_controlInterfaceNumber & 0xFF);
+    ctrl.wLength = 1;
+    ctrl.timeout = 1000;
+    ctrl.data = &value;
+
+    int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
+    if (result >= 0) {
+        outPin = value;
+        return true;
+    }
+
+    LOGD("GET_CUR for clock selector %u failed: errno=%d %s", selectorId, errno, strerror(errno));
+    return false;
+}
+
+bool USBAudioInterface::setClockSelectorValue(uint8_t selectorId, uint8_t pinValue) const {
+    if (m_deviceFd < 0 || m_controlInterfaceNumber < 0) {
+        return false;
+    }
+
+    uint8_t value = pinValue;
+    struct usbdevfs_ctrltransfer ctrl = {};
+    ctrl.bRequestType = 0x21; // Class, Interface, Host to Device
+    ctrl.bRequest = UAC_SET_CUR;
+    ctrl.wValue = static_cast<uint16_t>(UAC2_CX_CLOCK_SELECTOR) << 8;
+    ctrl.wIndex = (static_cast<uint16_t>(selectorId) << 8) |
+                  static_cast<uint16_t>(m_controlInterfaceNumber & 0xFF);
+    ctrl.wLength = 1;
+    ctrl.timeout = 1000;
+    ctrl.data = &value;
+
+    int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
+    if (result >= 0) {
+        return true;
+    }
+
+    LOGI("SET_CUR for clock selector %u pin %u failed: errno=%d %s", selectorId, pinValue, errno, strerror(errno));
+    return false;
+}
+
+bool USBAudioInterface::evaluateClockValidity(uint8_t clockId, const ClockSourceDetails* details, int maxRetries) {
+    if (!details) {
+        return true;
+    }
+
+    if (!isControlReadable(details->bmControls, UAC2_CS_CONTROL_CLOCK_VALID)) {
+        return true;
+    }
+
+    if (m_deviceFd < 0) {
+        return false;
+    }
+
+    const int retries = std::max(1, maxRetries);
+    std::vector<int> interfaceCandidates;
+    interfaceCandidates.reserve(3);
+    if (m_controlInterfaceNumber >= 0) {
+        interfaceCandidates.push_back(m_controlInterfaceNumber);
+    }
+    if (m_streamInterfaceNumber >= 0) {
+        interfaceCandidates.push_back(m_streamInterfaceNumber);
+    }
+    interfaceCandidates.push_back(-1); // entity-only fallback
+
+    uint8_t valid = 0;
+    bool anySuccess = false;
+
+    for (int attempt = 0; attempt < retries; ++attempt) {
+        for (int iface : interfaceCandidates) {
+            struct usbdevfs_ctrltransfer ctrl = {};
+            ctrl.bRequestType = 0xA1; // Class, Interface, Device to Host
+            ctrl.bRequest = UAC_GET_CUR;
+            ctrl.wValue = (UAC2_CS_CONTROL_CLOCK_VALID << 8);
+            ctrl.wIndex = (static_cast<uint16_t>(clockId) << 8) |
+                          static_cast<uint16_t>((iface >= 0) ? (iface & 0xFF) : 0x00);
+            ctrl.wLength = 1;
+            ctrl.timeout = 1000;
+            ctrl.data = &valid;
+
+            int result = ioctl(m_deviceFd, USBDEVFS_CONTROL, &ctrl);
+            if (result >= 0) {
+                anySuccess = true;
+                if (valid) {
+                    return true;
+                }
+            } else if (errno != EBUSY) {
+                LOGD("Clock validity GET_CUR failed (clock=%u iface=%d errno=%d %s)",
+                     clockId, iface, errno, strerror(errno));
+            }
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    if (!anySuccess) {
+        LOGD("Clock validity check returned no successful responses for clock %u", clockId);
+    }
+    return false;
+}
+
+int USBAudioInterface::resolveClockEntity(int entityId, bool validate, std::unordered_set<int>& visited) {
+    if (entityId <= 0) {
+        return -1;
+    }
+
+    if (!visited.insert(entityId).second) {
+        LOGI("Detected recursive clock topology involving entity %d", entityId);
+        return -1;
+    }
+
+    int resolvedId = -1;
+
+    if (const ClockSourceDetails* source = findClockSourceDetails(static_cast<uint8_t>(entityId))) {
+        if (!validate || evaluateClockValidity(static_cast<uint8_t>(entityId), source, 20)) {
+            resolvedId = entityId;
+        }
+    } else if (const ClockSelectorDetails* selector = findClockSelectorDetails(static_cast<uint8_t>(entityId))) {
+        if (!selector->inputs.empty()) {
+            uint8_t currentPin = 0;
+            bool haveCurrentPin = false;
+
+            if (isControlReadable(selector->bmControls, UAC2_CX_CLOCK_SELECTOR)) {
+                uint8_t pinValue = 0;
+                if (getClockSelectorValue(selector->id, pinValue) &&
+                    pinValue >= 1 && pinValue <= selector->inputs.size()) {
+                    currentPin = pinValue;
+                    haveCurrentPin = true;
+                }
+            }
+
+            struct Candidate {
+                uint8_t pinValue;
+                uint8_t sourceId;
+                bool isCurrent;
+            };
+
+            std::vector<Candidate> candidates;
+            candidates.reserve(selector->inputs.size());
+
+            for (size_t idx = 0; idx < selector->inputs.size(); ++idx) {
+                uint8_t pinValue = static_cast<uint8_t>(idx + 1);
+                Candidate candidate{pinValue, selector->inputs[idx], haveCurrentPin && pinValue == currentPin};
+                if (candidate.isCurrent) {
+                    candidates.insert(candidates.begin(), candidate);
+                } else {
+                    candidates.push_back(candidate);
+                }
+            }
+
+            const bool writable = isControlWritable(selector->bmControls, UAC2_CX_CLOCK_SELECTOR);
+
+            for (const auto& candidate : candidates) {
+                if (candidate.sourceId == 0) {
+                    continue;
+                }
+
+                const bool requiresSwitch = !candidate.isCurrent;
+                if (requiresSwitch && !writable) {
+                    continue;
+                }
+
+                uint8_t restorePin = currentPin;
+                bool switchApplied = !requiresSwitch;
+                if (requiresSwitch) {
+                    if (setClockSelectorValue(selector->id, candidate.pinValue)) {
+                        switchApplied = true;
+                        currentPin = candidate.pinValue;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                    } else {
+                        LOGI("Unable to switch clock selector %u to pin %u", selector->id, candidate.pinValue);
+                    }
+                }
+
+                if (switchApplied) {
+                    int childResolved = resolveClockEntity(candidate.sourceId, validate, visited);
+                    if (childResolved >= 0) {
+                        resolvedId = childResolved;
+                        break;
+                    }
+                }
+
+                if (requiresSwitch && switchApplied) {
+                    if (restorePin >= 1 && writable) {
+                        setClockSelectorValue(selector->id, restorePin);
+                        currentPin = restorePin;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    }
+                }
+            }
+        }
+    } else if (const ClockMultiplierDetails* multiplier = findClockMultiplierDetails(static_cast<uint8_t>(entityId))) {
+        resolvedId = resolveClockEntity(multiplier->sourceId, validate, visited);
+    }
+
+    visited.erase(entityId);
+    return resolvedId;
+}
+
+bool USBAudioInterface::resolveAndApplyClockSelection(bool validate) {
+    int startEntity = -1;
+    if (m_streamClockEntityId >= 0) {
+        startEntity = m_streamClockEntityId;
+    } else if (m_clockSourceId >= 0) {
+        startEntity = m_clockSourceId;
+    } else if (!m_clockSourceMap.empty()) {
+        startEntity = m_clockSourceMap.begin()->first;
+    }
+
+    if (startEntity < 0) {
+        return false;
+    }
+
+    std::unordered_set<int> visited;
+    int resolved = resolveClockEntity(startEntity, validate, visited);
+    if (resolved >= 0) {
+        m_clockSourceId = resolved;
+        return true;
+    }
+    return false;
+}
+
+bool USBAudioInterface::checkClockValidity(int clockId, int maxRetries) {
+    const ClockSourceDetails* details = findClockSourceDetails(static_cast<uint8_t>(clockId));
+    return evaluateClockValidity(static_cast<uint8_t>(clockId), details, maxRetries);
 }
 
 void USBAudioInterface::releaseUrbResources() {

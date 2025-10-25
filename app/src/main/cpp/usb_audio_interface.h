@@ -2,6 +2,8 @@
 
 #include <vector>
 #include <cstdint>
+#include <unordered_map>
+#include <unordered_set>
 
 class USBAudioInterface {
 public:
@@ -38,6 +40,23 @@ public:
     bool setInterface(int interfaceNum, int altSetting);
     
 private:
+    struct ClockSourceDetails {
+        uint8_t id = 0;
+        uint8_t attributes = 0;
+        uint32_t bmControls = 0;
+    };
+
+    struct ClockSelectorDetails {
+        uint8_t id = 0;
+        std::vector<uint8_t> inputs;
+        uint32_t bmControls = 0;
+    };
+
+    struct ClockMultiplierDetails {
+        uint8_t id = 0;
+        uint8_t sourceId = 0;
+    };
+
     int m_deviceFd;
     int m_sampleRate;
     int m_channelCount;
@@ -97,6 +116,16 @@ private:
     bool queryCurrentSampleRate(uint32_t& outRate, const char** sourceName);
     void resetStreamingState();
     bool flushIsochronousEndpoint();
+    bool resolveAndApplyClockSelection(bool validate = true);
+    int resolveClockEntity(int entityId, bool validate, std::unordered_set<int>& visited);
+    const ClockSourceDetails* findClockSourceDetails(uint8_t id) const;
+    const ClockSelectorDetails* findClockSelectorDetails(uint8_t id) const;
+    const ClockMultiplierDetails* findClockMultiplierDetails(uint8_t id) const;
+    bool getClockSelectorValue(uint8_t selectorId, uint8_t& outPin) const;
+    bool setClockSelectorValue(uint8_t selectorId, uint8_t pinValue) const;
+    static bool isControlReadable(uint32_t bmControls, uint8_t controlBitIndex);
+    static bool isControlWritable(uint32_t bmControls, uint8_t controlBitIndex);
+    bool evaluateClockValidity(uint8_t clockId, const ClockSourceDetails* details, int maxRetries);
 
     // Streaming endpoint details
     int m_streamInterfaceNumber;
@@ -119,13 +148,10 @@ private:
     uint8_t m_clockSelectorControls;
     int m_clockMultiplierId;
     uint8_t m_clockMultiplierControls;
-    struct ClockSourceDetails {
-        uint8_t id;
-        uint8_t attributes;
-        uint8_t controls;
-        bool programmable;
-    };
     std::vector<ClockSourceDetails> m_clockSources;
+    std::unordered_map<uint8_t, ClockSourceDetails> m_clockSourceMap;
+    std::unordered_map<uint8_t, ClockSelectorDetails> m_clockSelectorMap;
+    std::unordered_map<uint8_t, ClockMultiplierDetails> m_clockMultiplierMap;
     std::vector<uint32_t> m_supportedSampleRates;
     bool m_supportsContinuousSampleRate;
     uint32_t m_minContinuousSampleRate;
