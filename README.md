@@ -2,7 +2,7 @@
 
 # spcmic Recorder & Playback
 
-An Android app for capturing and reviewing the full 84-channel output of the spcmic array [https://spcmic.com/] over USB-C. The project pairs a native USB audio engine with a Kotlin MVVM UI and Material Design 3 styling.
+An Android app for capturing, reviewing and exporting the full 84-channel output of the spcmic array [https://spcmic.com/] over USB-C. The project pairs a native USB audio engine with a Kotlin MVVM UI and Material Design 3 styling.
 
 ## Current Highlights
 
