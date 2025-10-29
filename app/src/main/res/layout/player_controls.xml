@@ -5,7 +5,9 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_gravity="bottom"
-    app:cardBackgroundColor="#CC0F0D15"
+    android:clickable="true"
+    android:focusable="true"
+    app:cardBackgroundColor="#EE0F0D15"
     app:cardCornerRadius="24dp"
     app:cardElevation="8dp"
     android:layout_margin="16dp">

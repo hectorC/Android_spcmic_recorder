@@ -60,7 +60,7 @@
     <string name="location_permission_rationale">Precise location permission is required to tag recordings.</string>
     <string name="playback_settings_title">Playback</string>
     <string name="playback_realtime_convolution_toggle">Binaural real-time playback</string>
-    <string name="playback_realtime_convolution_description">Play in Binaural. Turn off if playback stutters (plays ch. 25/53 as L/R instead).</string>
+    <string name="playback_realtime_convolution_description">Play in Binaural (KU100). Turn off if playback stutters (plays ch. 25/53 as L/R instead).</string>
     <string name="now_playing_direct">NOW PLAYING (CH. 25/53 -&gt; L/R)</string>
     <string name="now_playing_binaural">NOW PLAYING (BINAURAL)</string>
 </resources>
