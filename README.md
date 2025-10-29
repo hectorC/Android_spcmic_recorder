@@ -25,7 +25,7 @@ An Android app for capturing, reviewing and exporting the full 84-channel output
 
 ### Hardware
 - Android device running Android 10 (API 29) or newer with USB Host mode.
-- spcmic 84-channel USB audio array.
+- spcmic 84-channel USB audio array with latest v2.X firmware.
 - High-speed storage (rule of thumb: ~1 GB/minute at 48 kHz, ~2 GB/minute at 96 kHz).
 
 ### Software
