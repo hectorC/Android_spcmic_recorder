@@ -55,7 +55,12 @@
     <string name="location_accuracy_format">Accuracy +/- %1$.0f m</string>
     <string name="location_timestamp_format">Captured at %1$tH:%1$tM:%1$tS</string>
     <string name="location_settings_title">Geolocation</string>
-    <string name="location_settings_description">Location tracking</string>
-    <string name="location_settings_toggle">Capture recording location</string>
+    <string name="location_settings_description">Per recording location data added to GPX file (acquired at stop.)</string>
+    <string name="location_settings_toggle">Capture recording GPS location</string>
     <string name="location_permission_rationale">Precise location permission is required to tag recordings.</string>
+    <string name="playback_settings_title">Playback</string>
+    <string name="playback_realtime_convolution_toggle">Binaural real-time playback</string>
+    <string name="playback_realtime_convolution_description">Play in Binaural. Turn off if playback stutters (plays ch. 25/53 as L/R instead).</string>
+    <string name="now_playing_direct">NOW PLAYING (CH. 25/53 -&gt; L/R)</string>
+    <string name="now_playing_binaural">NOW PLAYING (BINAURAL)</string>
 </resources>

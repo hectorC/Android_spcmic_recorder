@@ -127,6 +127,8 @@ class PlaybackFragment : Fragment() {
             val currentlyLooping = viewModel.isLooping.value == true
             viewModel.setLooping(!currentlyLooping)
         }
+
+        updateNowPlayingLabel(viewModel.realtimeConvolutionEnabled.value == true)
     }
 
     private fun observeViewModel() {
@@ -202,6 +204,10 @@ class PlaybackFragment : Fragment() {
                 slider.value = gainDb
             }
             binding.playerControls.tvGainValue.text = formatGain(gainDb)
+        }
+
+        viewModel.realtimeConvolutionEnabled.observe(viewLifecycleOwner) { enabled ->
+            updateNowPlayingLabel(enabled == true)
         }
         
         // Observe current position
@@ -299,6 +305,15 @@ class PlaybackFragment : Fragment() {
         }
         binding.playerControls.btnLoop.setColorFilter(tintColor)
         binding.playerControls.btnLoop.alpha = if (looping) 1f else 0.8f
+    }
+
+    private fun updateNowPlayingLabel(binauralEnabled: Boolean) {
+        val labelRes = if (binauralEnabled) {
+            R.string.now_playing_binaural
+        } else {
+            R.string.now_playing_direct
+        }
+        binding.playerControls.tvNowPlayingLabel.setText(labelRes)
     }
 
     private fun refreshStorageAndScan() {

@@ -83,13 +83,24 @@ class PlaybackViewModel : ViewModel() {
     private val _storagePath = MutableLiveData<String>()
     val storagePath: LiveData<String> = _storagePath
 
+    private val _realtimeConvolutionEnabled = MutableLiveData(true)
+    val realtimeConvolutionEnabled: LiveData<Boolean> = _realtimeConvolutionEnabled
+
     private var playbackEngine: NativePlaybackEngine? = null
     private var positionUpdateJob: Job? = null
     private var assetManager: AssetManager? = null
     private var cacheDirectory: String? = null
     private var preferences: SharedPreferences? = null
+    private var preferenceListenerRegistered = false
     private val preprocessMutex = Mutex()
-    private var playbackConvolvedEnabled = false
+    private var playbackConvolvedEnabled = true
+
+    private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+        if (key == PlaybackPreferences.keyRealtimeConvolution()) {
+            val enabled = prefs.getBoolean(key, false)
+            applyRealtimeConvolutionPreference(enabled, notifyEngine = true)
+        }
+    }
 
     private var appContext: Context? = null
     private var storageInfo: StorageLocationManager.StorageInfo? = null
@@ -111,7 +122,30 @@ class PlaybackViewModel : ViewModel() {
     }
 
     fun setPreferences(prefs: SharedPreferences) {
+        preferences?.let { existing ->
+            if (preferenceListenerRegistered) {
+                existing.unregisterOnSharedPreferenceChangeListener(preferenceChangeListener)
+                preferenceListenerRegistered = false
+            }
+        }
         preferences = prefs
+    val enabled = prefs.getBoolean(PlaybackPreferences.keyRealtimeConvolution(), true)
+        applyRealtimeConvolutionPreference(enabled, notifyEngine = playbackEngine != null)
+        prefs.registerOnSharedPreferenceChangeListener(preferenceChangeListener)
+        preferenceListenerRegistered = true
+    }
+
+    private fun applyRealtimeConvolutionPreference(enabled: Boolean, notifyEngine: Boolean) {
+        playbackConvolvedEnabled = enabled
+        if (_realtimeConvolutionEnabled.value != enabled) {
+            _realtimeConvolutionEnabled.postValue(enabled)
+        }
+        if (notifyEngine) {
+            if (_isPlaying.value == true) {
+                stopPlayback()
+            }
+            playbackEngine?.setPlaybackConvolved(enabled)
+        }
     }
 
     fun updateStorageLocation(info: StorageLocationManager.StorageInfo) {
@@ -253,7 +287,6 @@ class PlaybackViewModel : ViewModel() {
 
                 val loaded = loadRecordingIntoEngine(recording)
                 if (loaded) {
-                    val reused = if (playbackConvolvedEnabled) tryReuseCachedPreRender(recording) else false
                     val durationMs = (engine.getDuration() * 1000).toLong()
 
                     withContext(Dispatchers.Main) {
@@ -262,13 +295,9 @@ class PlaybackViewModel : ViewModel() {
                         _currentPosition.value = 0L
                         _isPlaying.value = false
                         _isProcessing.value = false
-                        _processingProgress.value = if (playbackConvolvedEnabled && reused) 100 else 0
+                        _processingProgress.value = 0
                         _processingMessage.value = R.string.preprocessing_message
-                        _statusMessage.value = if (playbackConvolvedEnabled && reused) {
-                            PlaybackMessage(R.string.playback_cached_ready)
-                        } else {
-                            null
-                        }
+                        _statusMessage.value = null
                     }
                 } else {
                     withContext(Dispatchers.Main) {
@@ -308,7 +337,6 @@ class PlaybackViewModel : ViewModel() {
         stopPlayback()
         playbackEngine?.release()
         playbackEngine = null
-        playbackConvolvedEnabled = false
 
         _selectedRecording.value = null
         _isPlaying.value = false
@@ -332,41 +360,13 @@ class PlaybackViewModel : ViewModel() {
 
     fun play() {
         val engine = playbackEngine ?: return
-
-        if (!playbackConvolvedEnabled) {
-            if (engine.play()) {
-                _isPlaying.value = true
-                _currentPosition.value = 0L
-                startPositionUpdates()
-            } else {
-                _statusMessage.value = PlaybackMessage(R.string.playback_not_ready)
-            }
-            return
-        }
-
-        if (engine.isPreRenderReady()) {
-            if (engine.play()) {
-                _isPlaying.value = true
-                startPositionUpdates()
-            } else {
-                _statusMessage.value = PlaybackMessage(R.string.playback_not_ready)
-            }
-            return
-        }
-
-        viewModelScope.launch {
-            val ready = ensurePreprocessed()
-            if (!ready) {
-                return@launch
-            }
-
-            if (engine.play()) {
-                _isPlaying.value = true
-                _currentPosition.value = 0L
-                startPositionUpdates()
-            } else {
-                _statusMessage.value = PlaybackMessage(R.string.playback_not_ready)
-            }
+        val started = engine.play()
+        if (started) {
+            _isPlaying.value = true
+            _currentPosition.value = 0L
+            startPositionUpdates()
+        } else {
+            _statusMessage.value = PlaybackMessage(R.string.playback_not_ready)
         }
     }
 
@@ -729,6 +729,10 @@ class PlaybackViewModel : ViewModel() {
         stopPlayback()
         playbackEngine?.release()
         playbackEngine = null
+        if (preferenceListenerRegistered) {
+            preferences?.unregisterOnSharedPreferenceChangeListener(preferenceChangeListener)
+            preferenceListenerRegistered = false
+        }
     }
 
     private suspend fun ensurePreprocessed(): Boolean {

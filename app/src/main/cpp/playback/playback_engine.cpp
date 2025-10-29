@@ -7,6 +7,10 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <chrono>
+#include <thread>
+
+#include "lock_free_ring_buffer.h"
 
 #define LOG_TAG "PlaybackEngine"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
@@ -19,6 +23,8 @@ namespace {
 
 constexpr const char* kDefaultCacheFileName = "playback_cache.wav";
 constexpr int kDefaultOutputChannels = 2;
+constexpr size_t kRealtimeRingChunks = 6;  // Number of BUFFER_FRAMES blocks queued for realtime playback
+constexpr size_t kRealtimePrimingChunks = 3;  // Minimum chunks queued before playback starts
 
 std::string JoinPath(const std::string& dir, const std::string& file) {
     if (dir.empty()) {
@@ -56,7 +62,11 @@ PlaybackEngine::PlaybackEngine()
     , preRenderInProgress_(false)
     , playbackConvolved_(false)
     , currentPreset_(IRPreset::Binaural)
-    , exportOutputChannels_(kDefaultOutputChannels) {
+    , exportOutputChannels_(kDefaultOutputChannels)
+    , realtimeThreadRunning_(false)
+    , realtimeThreadStopRequested_(false)
+    , realtimeWorkerPrimed_(false)
+{
     
     // Allocate input buffer for 84 channels
     inputBuffer_.resize(BUFFER_FRAMES * 84);
@@ -75,6 +85,7 @@ PlaybackEngine::~PlaybackEngine() {
 bool PlaybackEngine::loadFile(const std::string& filePath) {
     std::lock_guard<std::mutex> loadLock(loadMutex_);
     audioOutput_->stop();
+    stopRealtimeConvolutionWorker();
 
     clearPreRenderedState();
     sourceFilePath_ = filePath;
@@ -157,6 +168,7 @@ bool PlaybackEngine::loadFile(const std::string& filePath) {
 bool PlaybackEngine::loadFileFromDescriptor(int fd, const std::string& displayPath) {
     std::lock_guard<std::mutex> loadLock(loadMutex_);
     audioOutput_->stop();
+    stopRealtimeConvolutionWorker();
 
     clearPreRenderedState();
     sourceFilePath_ = displayPath;
@@ -286,10 +298,17 @@ bool PlaybackEngine::play() {
     }
 
     const bool useConvolved = playbackConvolved_.load(std::memory_order_relaxed);
+    const bool realtimeConvolution = useConvolved && !usePreRendered_;
 
     if (useConvolved) {
-        if (!preRenderedReady_) {
-            LOGW("Pre-rendered file not ready; call preparePreRenderedFile() first");
+        std::lock_guard<std::mutex> lock(fileMutex_);
+        if (usePreRendered_) {
+            if (!preRenderedReady_) {
+                LOGW("Pre-rendered file not ready; call preparePreRenderedFile() first");
+                return false;
+            }
+        } else if (!matrixConvolver_.isReady()) {
+            LOGW("Impulse response not configured; cannot start convolved playback");
             return false;
         }
     } else {
@@ -325,10 +344,23 @@ bool PlaybackEngine::play() {
         audioOutput_->stop();
     }
 
+    if (realtimeConvolution && matrixConvolver_.isReady()) {
+        {
+            std::lock_guard<std::mutex> lock(fileMutex_);
+            matrixConvolver_.reset();
+        }
+        startRealtimeConvolutionWorker();
+        waitForRealtimePriming();
+    }
+
     if (audioOutput_->start()) {
         state_ = State::PLAYING;
         LOGD("Playback started");
         return true;
+    }
+
+    if (realtimeConvolution) {
+        stopRealtimeConvolutionWorker();
     }
 
     LOGE("Audio output failed to start");
@@ -347,14 +379,20 @@ void PlaybackEngine::pause() {
 
 void PlaybackEngine::stop() {
     if (state_ == State::IDLE) {
+        stopRealtimeConvolutionWorker();
         return;
     }
 
     audioOutput_->stop();
+    stopRealtimeConvolutionWorker();
     
     std::lock_guard<std::mutex> lock(fileMutex_);
     wavReader_.seek(0);
     playbackCompleted_ = false;
+
+    if (playbackConvolved_.load(std::memory_order_relaxed) && !usePreRendered_ && matrixConvolver_.isReady()) {
+        matrixConvolver_.reset();
+    }
     
     state_ = State::STOPPED;
     LOGD("Playback stopped");
@@ -365,16 +403,39 @@ bool PlaybackEngine::seek(double positionSeconds) {
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(fileMutex_);
-    
-    int64_t targetFrame = (int64_t)(positionSeconds * wavReader_.getSampleRate());
-    
-    if (wavReader_.seek(targetFrame)) {
-        LOGD("Seeked to %.2f seconds (frame %lld)", positionSeconds, (long long)targetFrame);
-        return true;
+    const bool realtimeConvolution = playbackConvolved_.load(std::memory_order_relaxed) &&
+                                     !usePreRendered_ &&
+                                     matrixConvolver_.isReady();
+
+    if (realtimeConvolution) {
+        stopRealtimeConvolutionWorker();
     }
 
-    return false;
+    bool success = false;
+    {
+        std::lock_guard<std::mutex> lock(fileMutex_);
+
+        const int64_t targetFrame = static_cast<int64_t>(positionSeconds * wavReader_.getSampleRate());
+
+        if (wavReader_.seek(targetFrame)) {
+            if (realtimeConvolution) {
+                matrixConvolver_.reset();
+            }
+            LOGD("Seeked to %.2f seconds (frame %lld)", positionSeconds, (long long)targetFrame);
+            success = true;
+        }
+    }
+
+    if (!success) {
+        return false;
+    }
+
+    if (realtimeConvolution && state_.load(std::memory_order_relaxed) == State::PLAYING) {
+        startRealtimeConvolutionWorker();
+        waitForRealtimePriming();
+    }
+
+    return true;
 }
 
 double PlaybackEngine::getPositionSeconds() const {
@@ -400,11 +461,21 @@ void PlaybackEngine::audioCallback(float* output, int32_t numFrames) {
 }
 
 void PlaybackEngine::processAudio(float* output, int32_t numFrames) {
+    const bool useConvolved = playbackConvolved_.load(std::memory_order_relaxed);
+    const bool realtimeConvolution = useConvolved && !usePreRendered_ && matrixConvolver_.isReady();
+
+    if (realtimeConvolution) {
+        if (realtimeRing_) {
+            fillRealtimeOutput(output, numFrames);
+        } else {
+            memset(output, 0, numFrames * 2 * sizeof(float));
+        }
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(fileMutex_);
 
-    const bool useConvolved = playbackConvolved_.load(std::memory_order_relaxed);
-
-    if (useConvolved && !preRenderedReady_) {
+    if (useConvolved && usePreRendered_ && !preRenderedReady_) {
         memset(output, 0, numFrames * 2 * sizeof(float));
         return;
     }
@@ -526,6 +597,277 @@ void PlaybackEngine::processAudio(float* output, int32_t numFrames) {
     }
 }
 
+void PlaybackEngine::startRealtimeConvolutionWorker() {
+    if (!playbackConvolved_.load(std::memory_order_relaxed) || usePreRendered_) {
+        return;
+    }
+
+    if (!matrixConvolver_.isReady()) {
+        return;
+    }
+
+    bool expected = false;
+    if (!realtimeThreadRunning_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        return;
+    }
+
+    const int fileChannels = sourceNumChannels_;
+    if (fileChannels <= 0) {
+        realtimeThreadRunning_.store(false, std::memory_order_release);
+        return;
+    }
+
+    const size_t chunkFrames = static_cast<size_t>(BUFFER_FRAMES);
+    const int stereoChannels = 2;
+    const size_t chunkBytes = chunkFrames * stereoChannels * sizeof(float);
+    const size_t primingThreshold = chunkBytes * kRealtimePrimingChunks;
+    const size_t capacityBytes = chunkBytes * kRealtimeRingChunks;
+
+    try {
+        std::lock_guard<std::mutex> lock(realtimeMutex_);
+        if (!realtimeRing_ || realtimeRing_->getCapacity() != capacityBytes) {
+            realtimeRing_ = std::make_unique<LockFreeRingBuffer>(capacityBytes);
+        } else {
+            realtimeRing_->reset();
+        }
+    } catch (...) {
+        realtimeThreadRunning_.store(false, std::memory_order_release);
+        throw;
+    }
+
+    realtimeWorkerPrimed_.store(false, std::memory_order_release);
+    realtimeThreadStopRequested_.store(false, std::memory_order_release);
+
+    try {
+        realtimeThread_ = std::thread(&PlaybackEngine::realtimeConvolutionLoop, this);
+    } catch (...) {
+        realtimeThreadRunning_.store(false, std::memory_order_release);
+        realtimeThreadStopRequested_.store(false, std::memory_order_release);
+        throw;
+    }
+}
+
+void PlaybackEngine::stopRealtimeConvolutionWorker(bool flushRing) {
+    realtimeThreadStopRequested_.store(true, std::memory_order_release);
+    realtimeCv_.notify_all();
+
+    if (realtimeThread_.joinable()) {
+        realtimeThread_.join();
+    }
+
+    realtimeThreadRunning_.store(false, std::memory_order_release);
+    realtimeThreadStopRequested_.store(false, std::memory_order_release);
+    realtimeWorkerPrimed_.store(false, std::memory_order_release);
+
+    if (flushRing) {
+        std::lock_guard<std::mutex> lock(realtimeMutex_);
+        if (realtimeRing_) {
+            realtimeRing_->reset();
+        }
+    }
+
+    realtimeThread_ = std::thread();
+}
+
+void PlaybackEngine::realtimeConvolutionLoop() {
+    const int fileChannels = sourceNumChannels_;
+    if (fileChannels <= 0) {
+        realtimeThreadRunning_.store(false, std::memory_order_release);
+        realtimeWorkerPrimed_.store(true, std::memory_order_release);
+        realtimeCv_.notify_all();
+        return;
+    }
+
+    const int outChannels = std::max(1, exportOutputChannels_);
+    const size_t chunkFrames = static_cast<size_t>(BUFFER_FRAMES);
+    const int stereoChannels = 2;
+    const size_t chunkBytes = chunkFrames * stereoChannels * sizeof(float);
+    const size_t primingThreshold = chunkBytes * kRealtimePrimingChunks;
+
+    std::vector<float> input(static_cast<size_t>(chunkFrames) * fileChannels, 0.0f);
+    std::vector<float> convolved(static_cast<size_t>(chunkFrames) * outChannels, 0.0f);
+    std::vector<float> stereo(static_cast<size_t>(chunkFrames) * stereoChannels, 0.0f);
+
+    LockFreeRingBuffer* ring = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(realtimeMutex_);
+        ring = realtimeRing_.get();
+    }
+
+    if (!ring) {
+        realtimeThreadRunning_.store(false, std::memory_order_release);
+        realtimeWorkerPrimed_.store(true, std::memory_order_release);
+        realtimeCv_.notify_all();
+        return;
+    }
+
+    while (!realtimeThreadStopRequested_.load(std::memory_order_acquire)) {
+        if (ring->getAvailableSpace() < chunkBytes) {
+            realtimeWorkerPrimed_.store(true, std::memory_order_release);
+            realtimeCv_.notify_all();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+
+        int32_t framesRead = 0;
+        bool finalChunk = false;
+        const bool loop = loopEnabled_.load(std::memory_order_relaxed);
+
+        {
+            std::lock_guard<std::mutex> lock(fileMutex_);
+            if (!wavReader_.isOpen()) {
+                framesRead = 0;
+            } else {
+                framesRead = wavReader_.read(input.data(), static_cast<int32_t>(chunkFrames));
+                if (framesRead <= 0 && loop) {
+                    if (wavReader_.seek(0)) {
+                        framesRead = wavReader_.read(input.data(), static_cast<int32_t>(chunkFrames));
+                        playbackCompleted_.store(false, std::memory_order_relaxed);
+                    }
+                }
+
+                if (framesRead < static_cast<int32_t>(chunkFrames) && framesRead > 0) {
+                    std::fill(input.begin() + static_cast<size_t>(framesRead) * fileChannels,
+                              input.end(),
+                              0.0f);
+                    if (!loop) {
+                        finalChunk = true;
+                    }
+                }
+            }
+        }
+
+        if (framesRead <= 0) {
+            if (!loop) {
+                state_ = State::STOPPED;
+                if (!playbackCompleted_.exchange(true)) {
+                    LOGD("Realtime worker reached end of file");
+                }
+                std::fill(stereo.begin(), stereo.end(), 0.0f);
+                size_t written = 0;
+                const uint8_t* zeroBytes = reinterpret_cast<const uint8_t*>(stereo.data());
+                while (written < chunkBytes && !realtimeThreadStopRequested_.load(std::memory_order_acquire)) {
+                    const size_t wrote = ring->write(zeroBytes + written, chunkBytes - written);
+                    if (wrote == 0) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                        continue;
+                    }
+                    written += wrote;
+                }
+                break;
+            }
+            continue;
+        }
+
+        matrixConvolver_.process(input.data(), convolved.data(), static_cast<int32_t>(chunkFrames));
+
+        const float gain = playbackGainLinear_.load(std::memory_order_relaxed);
+        for (size_t frame = 0; frame < chunkFrames; ++frame) {
+            const size_t baseIndex = frame * outChannels;
+            const float left = convolved[baseIndex];
+            const float right = (outChannels > 1) ? convolved[baseIndex + 1] : left;
+            stereo[frame * 2] = left * gain;
+            stereo[frame * 2 + 1] = right * gain;
+        }
+
+        size_t written = 0;
+        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(stereo.data());
+        while (written < chunkBytes && !realtimeThreadStopRequested_.load(std::memory_order_acquire)) {
+            const size_t wrote = ring->write(bytes + written, chunkBytes - written);
+            if (wrote == 0) {
+                realtimeWorkerPrimed_.store(true, std::memory_order_release);
+                realtimeCv_.notify_all();
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                continue;
+            }
+            written += wrote;
+        }
+
+        if (!realtimeWorkerPrimed_.load(std::memory_order_acquire) &&
+            ring->getAvailableBytes() >= primingThreshold) {
+            realtimeWorkerPrimed_.store(true, std::memory_order_release);
+            realtimeCv_.notify_all();
+        }
+
+        if (finalChunk && !loop) {
+            state_ = State::STOPPED;
+            playbackCompleted_.store(true, std::memory_order_relaxed);
+            break;
+        }
+    }
+
+    realtimeThreadRunning_.store(false, std::memory_order_release);
+    realtimeWorkerPrimed_.store(true, std::memory_order_release);
+    realtimeCv_.notify_all();
+}
+
+void PlaybackEngine::waitForRealtimePriming() {
+    if (!realtimeRing_) {
+        return;
+    }
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+    const size_t chunkBytes = static_cast<size_t>(BUFFER_FRAMES) * 2 * sizeof(float);
+    const size_t requiredBytes = chunkBytes * kRealtimePrimingChunks;
+    std::unique_lock<std::mutex> lock(realtimeMutex_);
+    realtimeCv_.wait_until(lock, deadline, [this, requiredBytes]() {
+        if (!realtimeThreadRunning_.load(std::memory_order_acquire)) {
+            return true;
+        }
+        if (realtimeWorkerPrimed_.load(std::memory_order_acquire)) {
+            return true;
+        }
+        if (realtimeRing_) {
+            const size_t bytesAvailable = realtimeRing_->getAvailableBytes();
+            if (bytesAvailable >= requiredBytes) {
+                return true;
+            }
+        }
+        return false;
+    });
+
+    if (realtimeRing_) {
+        const size_t bytesAvailable = realtimeRing_->getAvailableBytes();
+        if (bytesAvailable < requiredBytes) {
+            LOGW("Realtime priming timed out with %zu bytes available (need %zu)",
+                 bytesAvailable,
+                 requiredBytes);
+        }
+    }
+}
+
+void PlaybackEngine::fillRealtimeOutput(float* output, int32_t numFrames) {
+    const size_t bytesNeeded = static_cast<size_t>(numFrames) * 2 * sizeof(float);
+    uint8_t* dest = reinterpret_cast<uint8_t*>(output);
+
+    LockFreeRingBuffer* ring = realtimeRing_.get();
+    if (!ring) {
+        memset(output, 0, bytesNeeded);
+        return;
+    }
+
+    size_t totalRead = 0;
+    for (int attempt = 0; attempt < 2 && totalRead < bytesNeeded; ++attempt) {
+        const size_t read = ring->read(dest + totalRead, bytesNeeded - totalRead);
+        if (read == 0) {
+            if (!realtimeThreadRunning_.load(std::memory_order_acquire)) {
+                break;
+            }
+            std::this_thread::yield();
+        }
+        totalRead += read;
+    }
+
+    if (totalRead < bytesNeeded) {
+        memset(dest + totalRead, 0, bytesNeeded - totalRead);
+        static std::atomic<bool> loggedUnderflow{false};
+        bool expected = false;
+        if (loggedUnderflow.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            LOGW("Realtime playback underflow: delivered %zu of %zu bytes", totalRead, bytesNeeded);
+        }
+    }
+}
+
 bool PlaybackEngine::loadImpulseResponse(int32_t sampleRate) {
     if (!assetManager_) {
         LOGW("Asset manager not provided; skipping IR load");
@@ -616,6 +958,7 @@ bool PlaybackEngine::preparePreRenderedFile() {
     }
 
     audioOutput_->stop();
+    stopRealtimeConvolutionWorker();
 
     std::lock_guard<std::mutex> lock(fileMutex_);
 
@@ -897,6 +1240,32 @@ bool PlaybackEngine::isPreRenderInProgress() const {
 
 void PlaybackEngine::setPlaybackConvolved(bool enabled) {
     const bool previous = playbackConvolved_.exchange(enabled, std::memory_order_relaxed);
+    if (enabled == previous) {
+        return;
+    }
+
+    stopRealtimeConvolutionWorker();
+
+    if (enabled) {
+        std::lock_guard<std::mutex> lock(fileMutex_);
+        if (usePreRendered_ && !sourceFilePath_.empty()) {
+            LOGD("Enabling convolved playback; restoring original multichannel source");
+            wavReader_.close();
+            if (wavReader_.open(sourceFilePath_)) {
+                if (!wavReader_.seek(0)) {
+                    LOGW("Failed to seek original source after enabling convolved playback");
+                }
+            } else {
+                LOGE("Failed to reopen original source while enabling convolved playback: %s", sourceFilePath_.c_str());
+            }
+        }
+        usePreRendered_ = false;
+        preRenderedReady_ = false;
+        if (matrixConvolver_.isReady()) {
+            matrixConvolver_.reset();
+        }
+        return;
+    }
     if (!enabled && previous) {
         std::lock_guard<std::mutex> lock(fileMutex_);
         if (usePreRendered_ && !sourceFilePath_.empty()) {

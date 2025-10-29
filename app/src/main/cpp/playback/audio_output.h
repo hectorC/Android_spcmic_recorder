@@ -78,7 +78,7 @@ private:
     AudioCallback callback_;
     
     // Double buffering (16-bit PCM for OpenSL ES)
-    static constexpr int32_t NUM_BUFFERS = 3;
+    static constexpr int32_t NUM_BUFFERS = 8;
     int16_t* audioBuffers_[NUM_BUFFERS];  // PCM int16 buffers for OpenSL ES
     float* floatBuffer_;                   // Temp float buffer from callback
     int32_t currentBuffer_;

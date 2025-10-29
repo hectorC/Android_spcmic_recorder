@@ -38,6 +38,7 @@ import com.spcmic.recorder.location.LocationCaptureManager
 import com.spcmic.recorder.location.LocationPreferences
 import com.spcmic.recorder.location.LocationStatus
 import com.spcmic.recorder.location.RecordingLocation
+import com.spcmic.recorder.playback.PlaybackPreferences
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1078,6 +1079,14 @@ class RecordFragment : Fragment() {
                 return@setOnCheckedChangeListener
             }
             handleLocationSwitchChanged(switchLocationCapture, isChecked)
+        }
+
+        val switchRealtimeConvolution = sheetView.findViewById<MaterialSwitch>(R.id.switchRealtimeConvolution)
+        switchRealtimeConvolution?.let { realtimeSwitch ->
+            realtimeSwitch.isChecked = PlaybackPreferences.isRealtimeConvolutionEnabled(requireContext())
+            realtimeSwitch.setOnCheckedChangeListener { _, isChecked ->
+                PlaybackPreferences.setRealtimeConvolutionEnabled(requireContext(), isChecked)
+            }
         }
 
         bottomSheet.setContentView(sheetView)

@@ -7,15 +7,20 @@
 #include "matrix_convolver/ir_loader.h"
 #include "matrix_convolver/ir_data.h"
 #include "matrix_convolver/matrix_convolver.h"
+#include "lock_free_ring_buffer.h"
 struct AAssetManager;
-#include <memory>
-#include <string>
 #include <atomic>
-#include <mutex>
-#include <vector>
+#include <condition_variable>
 #include <cstdint>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
 
 namespace spcmic {
+
+using ::LockFreeRingBuffer;
 
 /**
  * Main playback engine
@@ -174,6 +179,12 @@ private:
      */
     void processAudio(float* output, int32_t numFrames);
 
+    void startRealtimeConvolutionWorker();
+    void stopRealtimeConvolutionWorker(bool flushRing = true);
+    void realtimeConvolutionLoop();
+    void waitForRealtimePriming();
+    void fillRealtimeOutput(float* output, int32_t numFrames);
+
     bool loadImpulseResponse(int32_t sampleRate);
     void clearPreRenderedState();
     void ensureOutputBufferCapacity(int outputChannels);
@@ -213,8 +224,17 @@ private:
     std::atomic<bool> playbackConvolved_;
     IRPreset currentPreset_;
     int exportOutputChannels_;
+
+    // Realtime convolution worker state
+    std::unique_ptr<LockFreeRingBuffer> realtimeRing_;
+    std::thread realtimeThread_;
+    std::atomic<bool> realtimeThreadRunning_;
+    std::atomic<bool> realtimeThreadStopRequested_;
+    std::atomic<bool> realtimeWorkerPrimed_;
+    std::mutex realtimeMutex_;
+    std::condition_variable realtimeCv_;
     
-    static constexpr int32_t BUFFER_FRAMES = 4096;  // ~85ms at 48kHz to improve stability
+    static constexpr int32_t BUFFER_FRAMES = 2048;  // Smaller processing chunks; overall latency controlled by buffer queue
     static constexpr int32_t DIRECT_LEFT_CHANNEL_INDEX = 24;  // channel 25 (1-based)
     static constexpr int32_t DIRECT_RIGHT_CHANNEL_INDEX = 52; // channel 53 (1-based)
 
