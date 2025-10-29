@@ -13,7 +13,7 @@ An Android app for capturing, reviewing and exporting the full 84-channel output
 - **Output to recording gain control** (0 to +48 dB) applied in the native capture pipeline before writing to disk, with clip detection for gain-induced overflows.
 - **Large-file support** by promoting recordings to RF64 once they exceed RIFF limits (4GB) while keeping metadata aligned with the negotiated format.
 - **Destination directory selection** in the settings panel, to either internal storage or external USB storage (e.g., SSD with a USB-C hub so the spcmic can be simultaneously plugged)
-- **Native playback engine** previews the array by routing capsule 25 (left) and capsule 53 (right) directly to stereo, delivering instant playback alongside transport controls and a 0 to +48 dB playback only gain stage.
+- **Native playback engine** plays a binaural decode (KU100) or previews the array by routing capsule 25 (left) and capsule 53 (right) directly to stereo, delivering instant playback alongside transport controls and a 0 to +48 dB playback only gain stage.
 - **Loop toggle** that restarts playback at the end of the file.
 - **Export workflow** decoupled from playback: start a binaural, ORTF, XY, or third-order Ambisonic export from any recording and watch progress in the processing overlay.
 - **Dedicated exports directory** `Exports` created in the same directory as the recording target, keeping rendered mixes out of the source recording list.
@@ -89,7 +89,7 @@ Use the refresh button (circular arrow) if the microphone is not detected (the s
 3. **Select a sample rate** – Use the spinner to pick among the rates advertised by the interface/alt-setting (48 kHz, 96 kHz).
 4. **Adjust gain** – Use the gain slider (0 to +48 dB) to boost input levels. Gain is applied in the native capture pipeline and written into the file. The level meter and clipping detector operate post-gain.
 5. **(Optional) Enable geolocation** – Toggle the location switch in the settings panel to capture a single high-accuracy fix at the end of each take. Grant fine location permission when prompted. A location marker will appear in the top right corner of the timecode box when geolocation is enabled.
-6. **Start monitoring** – Tap **START MONITORING** to begin USB streaming. The level meter shows the real-time peak level of the loudest channel, with color zones (green/yellow/red) indicating headroom. If any channel clips, a warning icon appears and the meter stays red until you tap to clear.
+6. **Start monitoring** – Tap **START MONITORING** to begin USB streaming. The level meter shows the real-time peak level of the loudest channel, with color zones (green/yellow/red) indicating headroom. If any channel clips, a warning icon appears and the meter stays red until you tap to clear. There is no audio passthrough sent to the device's speakers or connected headphones during monitoring.
 7. **Start recording** – Once levels look appropriate, tap **START RECORDING** to open a timestamped WAV file (e.g., `spcmic_recording_YYYYMMDD_HHMMSS.wav`) and begin writing audio to disk. The UI displays elapsed time.
 8. **Stop recording** – Tap **STOP RECORDING** to finalize the file. Headers are back-filled with the negotiated format before the file is closed. When the payload exceeds 4 GB, the writer upgrades the container to RF64 and patches the ds64 chunk before close.
 9. **Abort monitoring** – Long-press the button during monitoring to exit USB streaming without recording a file.
@@ -112,7 +112,7 @@ The app supports both direct filesystem access and SAF (external storage) for ma
 Playback preview routes capsule 25 to the left ear and capsule 53 to the right for instant stereo monitoring, while the convolution engine remains available for offline exports.
 
 1. **Open a recording** – The playback screen lists top-level 84-channels recordings only; exports are hidden to avoid duplication.
-2. **Adjust gain** – Drag the gain slider from 0 dB up to +48 dB while listening to the direct stereo pair (capsule 25 → left, capsule 53 → right).
+2. **Adjust gain** – Drag the gain slider from 0 dB up to +48 dB while listening to the binaural decode (KU100) or the direct stereo pair (capsule 25 → left, capsule 53 → right). Binaural decode is enabled by default in the settings and can be disabled if binaural decode playback stutters due to low device performance (plays direct stereo pair instead).
 3. **Toggle looping** – Use the loop button to restart playback at end of file.
 4. **Export mixes** – Use the overflow menu to render Binaural, ORTF, XY, or third-order Ambisonic (16-channel) files. Completed exports land in `/Exports/` inisde the selected recording target directory.
 5. **Delete recordings** – Use the overflow delete action to remove unwanted takes; confirmations prevent accidental loss.
@@ -144,7 +144,7 @@ Playback preview routes capsule 25 to the left ear and capsule 53 to the right f
 | **Exports missing** | Check `/Documents/spcmicRecorder/Exports/` (not the recordings directory). |
 
 ## Known issues
-- Sometimes the USB connection fails and audio will present crackling in all or some of the channels. This can be detected while monitoring in a quiet place at 0dB gain and observing the level meters. If the levels look abmormaly loud then stop monitoring, disconnect and reconnect the spcmic and test monitoring again 
+- Sometimes the USB connection fails and audio will present crackling in all or some of the channels. This can be detected while monitoring in a quiet place at 0dB gain and observing the level meters. If the levels look abnormally loud (peaking mid-way in the meter) then stop monitoring, disconnect and reconnect the spcmic and test monitoring again 
 
 ## Roadmap
 
