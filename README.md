@@ -4,7 +4,7 @@
 
 An Android app for capturing, reviewing and exporting the full 84-channel output of the spcmic array [https://spcmic.com/] over USB-C. The project pairs a native USB audio engine with a Kotlin MVVM UI and Material Design 3 styling.
 
-**Note:** This app requires that the spcmic is flashed with the latest firmware that converts it into a USB Audio Class Compliant device. This firwmare is currently accessible through the 0.9.1 beta version of the spcmic app [https://harpex.net/spcmicsoftware/0.9.1%20beta/]
+**Note:** This app requires that the spcmic is flashed with the latest firmware v2.x that converts it into a USB Audio Class Compliant device. This firmware is currently accessible through the 0.9.1 beta version of the spcmic app [https://harpex.net/spcmicsoftware/0.9.1%20beta/]
 
 ## Current Highlights
 
@@ -25,7 +25,7 @@ An Android app for capturing, reviewing and exporting the full 84-channel output
 
 ### Hardware
 - Android device running Android 10 (API 29) or newer with USB Host mode.
-- spcmic 84-channel USB audio array with latest v2.X firmware.
+- spcmic 84-channel USB audio array with latest v2.x firmware.
 - High-speed storage (rule of thumb: ~1 GB/minute at 48 kHz, ~2 GB/minute at 96 kHz).
 
 ### Software
