@@ -134,17 +134,6 @@ Playback preview routes capsule 25 to the left ear and capsule 53 to the right f
 - **Material Design 3** theming with light/dark support and accessibility-focused controls.
 - **Coroutines** orchestrating preprocessing, export rendering, and UI state updates without blocking the main thread.
 
-## Troubleshooting
-
-| Issue | Suggested Fix |
-| --- | --- |
-| **Device not detected** | Confirm USB Host support and tap *Refresh* (circular arrow icon) after granting permission. |
-| **Sample-rate request fails** | Some rates live on alternate USB interface settings. Reconnect and retry with a rate listed in the spinner. |
-| **Level meter stays red** | Tap the level meter card to clear the latched clipping indicator. If clipping persists, reduce source gain or mic positioning. |
-| **Audio dropouts during recording** | Ensure sufficient free storage space, avoid heavy multitasking during recording. The app maintains more than 10 seconds of buffering to mitigate dropouts. |
-| **Large files** | At 48 kHz/84 ch expect ~1 GB per minute. The recorder switches to RF64 automatically once the data chunk approaches 4 GB. Move files off-device promptly and ensure ≥20 GB free before long sessions. |
-| **Exports missing** | Check `/Documents/spcmicRecorder/Exports/` (not the recordings directory). |
-
 ## Known issues
 - Sometimes the USB connection fails and audio will present crackling in all or some of the channels. This can be detected while monitoring in a quiet place at 0dB gain and observing the level meters. If the levels look abnormally loud (peaking mid-way in the meter) then stop monitoring, disconnect and reconnect the spcmic and test monitoring again 
 
