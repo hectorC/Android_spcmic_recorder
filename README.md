@@ -1,4 +1,4 @@
-**Note (written by a human):** Contains AI generated code and descriptions text. This app is currently overall functional but it could still be unstable or buggy. If you encounter any problems, please use the issues section to report them.
+**Note:** This app is currently overall functional but it could still be unstable or buggy. If you encounter any problems, please use the issues section to report them.
 
 # spcmic Recorder & Playback
 
