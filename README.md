@@ -137,9 +137,6 @@ Playback preview routes capsule 25 to the left ear and capsule 53 to the right f
 ## Known issues
 - Sometimes the USB connection fails and audio will present crackling in all or some of the channels. This can be detected while monitoring in a quiet place at 0dB gain and observing the level meters. If the levels look abnormally loud (peaking mid-way in the meter) then stop monitoring, disconnect and reconnect the spcmic and test monitoring again 
 
-## Roadmap
-
-- Collect feedback on the new export presets and prioritize the next round of mixing features.
 
 ## License & Contributions
 
